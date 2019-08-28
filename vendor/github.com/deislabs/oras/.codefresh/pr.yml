@@ -1,0 +1,11 @@
+version: '1.0'
+stages:
+- test
+steps:
+  UnitTest:
+    title: Run unit tests
+    stage: test
+    image: golang:1.11-alpine
+    commands:
+    - apk add git make bash file
+    - make test
