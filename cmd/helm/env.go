@@ -19,34 +19,53 @@ package main
 import (
 	"fmt"
 	"io"
+	"sort"
 
-	"github.com/gosuri/uitable"
-	"github.com/pkg/errors"
+	"helm.sh/helm/pkg/cli"
+
 	"github.com/spf13/cobra"
 
 	"helm.sh/helm/cmd/helm/require"
-	"helm.sh/helm/pkg/repo"
 )
 
-func newRepoListCmd(out io.Writer) *cobra.Command {
+var (
+	envHelp = `
+Env prints out all the environment information in use by Helm.
+`
+)
+
+func newEnvCmd(out io.Writer) *cobra.Command {
+	o := &envOptions{}
+	o.settings = cli.New()
+
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "list chart repositories",
+		Use:   "env",
+		Short: "Helm client environment information",
+		Long:  envHelp,
 		Args:  require.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			f, err := repo.LoadFile(settings.RepositoryConfig)
-			if isNotExist(err) || len(f.Repositories) == 0 {
-				return errors.New("no repositories to show")
-			}
-			table := uitable.New()
-			table.AddRow("NAME", "URL")
-			for _, re := range f.Repositories {
-				table.AddRow(re.Name, re.URL)
-			}
-			fmt.Fprintln(out, table)
-			return nil
+			return o.run(out)
 		},
 	}
 
 	return cmd
+}
+
+type envOptions struct {
+	settings *cli.EnvSettings
+}
+
+func (o *envOptions) run(out io.Writer) error {
+
+	// Sorting keys to display in alphabetical order
+	var keys []string
+	for k := range o.settings.EnvironmentVariables {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		fmt.Printf("%s=\"%s\" \n", k, o.settings.EnvironmentVariables[k])
+	}
+	return nil
 }

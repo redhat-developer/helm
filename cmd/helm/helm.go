@@ -79,7 +79,12 @@ func main() {
 
 	if err := cmd.Execute(); err != nil {
 		debug("%+v", err)
-		os.Exit(1)
+		switch e := err.(type) {
+		case pluginError:
+			os.Exit(e.code)
+		default:
+			os.Exit(1)
+		}
 	}
 }
 
@@ -129,6 +134,10 @@ func kubeConfig() genericclioptions.RESTClientGetter {
 }
 
 func getNamespace() string {
+	if settings.Namespace != "" {
+		return settings.Namespace
+	}
+
 	if ns, _, err := kubeConfig().ToRawKubeConfigLoader().Namespace(); err == nil {
 		return ns
 	}
