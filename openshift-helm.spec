@@ -27,10 +27,14 @@ Obsoletes:      %{package_name}
 OpenShift helm is tool for managing Charts in OpenShif. Charts are packages of pre-configured OpenShift Resources
 
 %prep
-%setup -q -n %{source_dir}
+%setup -q -n helm
+mkdir -p %{_builddir}/src/helm.sh
+rm -rf %{_builddir}/src/helm.sh/helm
+mv %{_builddir}/helm %{_builddir}/src/helm.sh
+cd %{_builddir}/src/helm.sh/helm
 
 %build
-TAG=%{helm_version} make build-cross
+TAG=%{helm_version} GOPATH=%{_builddir} make build-cross
 
 %install
 mkdir -p %{buildroot}/%{_bindir}
