@@ -30,20 +30,15 @@ OpenShift helm is tool for managing Charts in OpenShif. Charts are packages of p
 %setup -q -n helm
 mkdir -p %{_builddir}/src/helm.sh
 rm -rf %{_builddir}/src/helm.sh/helm
-mv %{_builddir}/helm %{_builddir}/src/helm.sh
-cd %{_builddir}/src/helm.sh/helm
+cp -rf %{_builddir}/helm %{_builddir}/src/helm.sh
 
 %build
+cd %{_builddir}/src/helm.sh/helm
 TAG=%{helm_version} GOPATH=%{_builddir} make build-cross
 
 %install
-mkdir -p %{buildroot}/%{_bindir}
-install -m 0755 helm-linux-amd64 %{buildroot}/%{_bindir}/helm
-
-install -d %{buildroot}%{_datadir}/%{name}-redistributable/{linux,macos,windows}
-install -p -m 755 helm-linux-amd64 %{buildroot}%{_datadir}/%{name}-redistributable/linux/helm-linux-amd64
-install -p -m 755 helm-darwin-amd64 %{buildroot}/%{_datadir}/%{name}-redistributable/macos/helm-darwin-amd64
-install -p -m 755 helm-windows-amd64.exe %{buildroot}/%{_datadir}/%{name}-redistributable/windows/helm-windows-amd64.exe
+mkdir -p %{buildroot}%{_bindir}
+install -m 0755 %{_builddir}/src/helm.sh/helm/_dist/linux-amd64/helm %{buildroot}%{_bindir}
 
 %files
 %license LICENSE
@@ -61,12 +56,6 @@ Obsoletes:      %{package_name}-redistributable
 
 %files redistributable
 %license LICENSE
-%dir %{_datadir}/%{name}-redistributable/linux/
-%dir %{_datadir}/%{name}-redistributable/macos/
-%dir %{_datadir}/%{name}-redistributable/windows/
-%{_datadir}/%{name}-redistributable/linux/helm-linux-amd64
-%{_datadir}/%{name}-redistributable/macos/helm-darwin-amd64
-%{_datadir}/%{name}-redistributable/windows/helm-windows-amd64.exe
 
 %changelog
 * Thu Sep 05 2019 Bama Charan Kundu <bkundu@redhat.com> v3.0.1-1
