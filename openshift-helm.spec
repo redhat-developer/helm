@@ -40,6 +40,14 @@ TAG=%{helm_version} GOPATH=%{_builddir} make build-cross
 mkdir -p %{buildroot}%{_bindir}
 install -m 0755 %{_builddir}/src/helm.sh/helm/_dist/linux-amd64/helm %{buildroot}%{_bindir}
 
+install -d %{buildroot}%{_datadir}/%{name}-redistributable/{linux-386,linux-arm,linux-arm64,linux-ppc64le,macos,windows}
+install -p -m 0755 %{_builddir}/src/helm.sh/helm/_dist/linux-386/helm %{buildroot}%{_datadir}/%{name}-redistributable/linux-386
+install -p -m 0755 %{_builddir}/src/helm.sh/helm/_dist/linux-arm/helm %{buildroot}%{_datadir}/%{name}-redistributable/linux-arm
+install -p -m 0755 %{_builddir}/src/helm.sh/helm/_dist/linux-arm64/helm %{buildroot}%{_datadir}/%{name}-redistributable/linux-arm64
+install -p -m 0755 %{_builddir}/src/helm.sh/helm/_dist/linux-ppc64le/helm %{buildroot}%{_datadir}/%{name}-redistributable/linux-ppc64le
+install -p -m 0755 %{_builddir}/src/helm.sh/helm/_dist/darwin-amd64/helm %{buildroot}%{_datadir}/%{name}-redistributable/macos
+install -p -m 0755 %{_builddir}/src/helm.sh/helm/_dist/windows-amd64/helm.exe %{buildroot}%{_datadir}/%{name}-redistributable/windows
+
 %files
 %license LICENSE
 %{_bindir}/helm
@@ -56,6 +64,18 @@ Obsoletes:      %{package_name}-redistributable
 
 %files redistributable
 %license LICENSE
+%dir %{_datadir}/%{name}-redistributable/linux-386
+%dir %{_datadir}/%{name}-redistributable/linux-arm
+%dir %{_datadir}/%{name}-redistributable/linux-arm64
+%dir %{_datadir}/%{name}-redistributable/linux-ppc64le
+%dir %{_datadir}/%{name}-redistributable/macos
+%dir %{_datadir}/%{name}-redistributable/windows
+%{_datadir}/%{name}-redistributable/linux-386/helm
+%{_datadir}/%{name}-redistributable/linux-arm/helm
+%{_datadir}/%{name}-redistributable/linux-arm64/helm
+%{_datadir}/%{name}-redistributable/linux-ppc64le/helm
+%{_datadir}/%{name}-redistributable/macos/helm
+%{_datadir}/%{name}-redistributable/windows/helm.exe
 
 %changelog
 * Thu Sep 05 2019 Bama Charan Kundu <bkundu@redhat.com> v3.0.1-1
