@@ -131,12 +131,12 @@ $(GOIMPORTS):
 	go get -u golang.org/x/tools/cmd/goimports
 
 # install vendored dependencies
-vendor: Gopkg.lock
-	$(DEP) ensure --vendor-only
+#vendor: Gopkg.lock
+#	$(DEP) ensure --vendor-only
 
 # update vendored dependencies
-Gopkg.lock: Gopkg.toml
-	$(DEP) ensure --no-vendor
+#Gopkg.lock: Gopkg.toml
+#	$(DEP) ensure --no-vendor
 
 Gopkg.toml: $(DEP)
 
@@ -146,8 +146,17 @@ Gopkg.toml: $(DEP)
 .PHONY: build-cross
 build-cross: LDFLAGS += -extldflags "-static"
 build-cross: vendor
-build-cross: $(GOX)
-	CGO_ENABLED=0 $(GOX) -parallel=3 -output="_dist/{{.OS}}-{{.Arch}}/$(BINNAME)" -osarch='$(TARGETS)' $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
+#build-cross: $(GOX)
+#	CGO_ENABLED=0 $(GOX) -parallel=3 -output="_dist/{{.OS}}-{{.Arch}}/$(BINNAME)" -osarch='$(TARGETS)' $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
+
+build-cross:
+	CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
+	CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
+	CGO_ENABLED=0 GOARCH=386 GOOS=linux go build -o "_dist/linux-386/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
+	CGO_ENABLED=0 GOARCH=arm GOOS=linux go build -o "_dist/linux-arm/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
+	CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
+	CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
+	CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' helm.sh/helm/cmd/helm
 
 .PHONY: dist
 dist:
