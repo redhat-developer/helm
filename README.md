@@ -47,6 +47,18 @@ To rapidly get Helm up and running, start with the [Quick Start Guide](https://d
 See the [installation guide](https://docs.helm.sh/using_helm/#installing-helm) for more options,
 including installing pre-releases.
 
+## Building From Source
+
+With Go version 1.12 or newer installed, enter these commands to build
+from source:
+
+```bash
+mkdir $GOPATH/src/helm.sh
+cd $GOPATH/src/helm.sh
+git clone git@github.com:redhat-developer/helm.git -b dev-v3
+GO111MODULE=off make
+```
+
 ## Docs
 
 Get started with the [Quick Start guide](https://docs.helm.sh/using_helm/#quickstart-guide) or plunge into the [complete documentation](https://docs.helm.sh)
