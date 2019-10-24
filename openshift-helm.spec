@@ -10,7 +10,7 @@
 
 Name:           %{package_name}
 Version:        %{helm_version}
-Release:        %{helm_release}
+Release:        %{helm_release}%{?dist}
 Summary:        %{product_name} helm binary for rhose 4.3
 License:        ASL 2.0
 URL:            https://github.com/redhat-developer/helm/tree/rhose-4.3
