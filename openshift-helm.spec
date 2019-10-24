@@ -12,7 +12,7 @@ Name:           %{package_name}
 Version:        %{helm_version}
 Release:        %{helm_release}
 Summary:        %{product_name} helm binary for rhose 4.3
-License:        Apache License Version 2.0
+License:        ASL 2.0
 URL:            https://github.com/redhat-developer/helm/tree/rhose-4.3
 
 ExclusiveArch:  x86_64
@@ -24,7 +24,7 @@ Provides:       %{package_name}
 Obsoletes:      %{package_name}
 
 %description
-OpenShift helm is tool for managing Charts in OpenShif. Charts are packages of pre-configured OpenShift Resources
+OpenShift helm is tool for managing Charts in OpenShift. Charts are packages of pre-configured OpenShift Resources
 
 %prep
 %setup -q -n helm
@@ -78,6 +78,13 @@ Obsoletes:      %{package_name}-redistributable
 %{_datadir}/%{name}-redistributable/windows/helm.exe
 
 %changelog
+* Thu Oct 24 2019 Bama Charan Kundu <bkundu@redhat.com> v3.0.1-3
+- Fixed typo in description
+- changed License tag to ASL 2.0 for Apache Software License 2.0
+
+* Tue Oct 15 2019 Bama Charan Kundu <bkundu@redhat.com> v3.0.1-2
+- Updated makefile with local build
+- candidate build for helm
+
 * Thu Sep 05 2019 Bama Charan Kundu <bkundu@redhat.com> v3.0.1-1
 - Initial tech preview release
-
