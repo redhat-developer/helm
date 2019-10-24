@@ -4,7 +4,7 @@
 %global product_name OpenShift Container Platform
 %global golang_version 1.12
 %global helm_version 3.0.1
-%global helm_release 1
+%global helm_release 3
 %global source_dir helm-v%{helm_version}-%{helm_release}
 %global source_tar %{source_dir}.tar.gz
 
