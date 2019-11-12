@@ -21,8 +21,13 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"k8s.io/helm/pkg/proto/hapi/chart"
+	"github.com/pkg/errors"
+	"sigs.k8s.io/yaml"
+
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chart/loader"
 )
 
 const (
@@ -30,29 +35,56 @@ const (
 	ChartfileName = "Chart.yaml"
 	// ValuesfileName is the default values file name.
 	ValuesfileName = "values.yaml"
+	// SchemafileName is the default values schema file name.
+	SchemafileName = "values.schema.json"
 	// TemplatesDir is the relative directory name for templates.
 	TemplatesDir = "templates"
 	// ChartsDir is the relative directory name for charts dependencies.
 	ChartsDir = "charts"
+	// TemplatesTestsDir is the relative directory name for tests.
+	TemplatesTestsDir = TemplatesDir + sep + "tests"
 	// IgnorefileName is the name of the Helm ignore file.
 	IgnorefileName = ".helmignore"
 	// IngressFileName is the name of the example ingress file.
-	IngressFileName = "ingress.yaml"
+	IngressFileName = TemplatesDir + sep + "ingress.yaml"
 	// DeploymentName is the name of the example deployment file.
-	DeploymentName = "deployment.yaml"
+	DeploymentName = TemplatesDir + sep + "deployment.yaml"
 	// ServiceName is the name of the example service file.
-	ServiceName = "service.yaml"
+	ServiceName = TemplatesDir + sep + "service.yaml"
 	// ServiceAccountName is the name of the example serviceaccount file.
-	ServiceAccountName = "serviceaccount.yaml"
+	ServiceAccountName = TemplatesDir + sep + "serviceaccount.yaml"
 	// NotesName is the name of the example NOTES.txt file.
-	NotesName = "NOTES.txt"
+	NotesName = TemplatesDir + sep + "NOTES.txt"
 	// HelpersName is the name of the example helpers file.
-	HelpersName = "_helpers.tpl"
-	// TemplatesTestsDir is the relative directory name for templates tests.
-	TemplatesTestsDir = "templates/tests"
-	// TestConnectionName is the name of the example connection test file.
-	TestConnectionName = "test-connection.yaml"
+	HelpersName = TemplatesDir + sep + "_helpers.tpl"
+	// TestConnectionName is the name of the example test file.
+	TestConnectionName = TemplatesTestsDir + sep + "test-connection.yaml"
 )
+
+const sep = string(filepath.Separator)
+
+const defaultChartfile = `apiVersion: v2
+name: %s
+description: A Helm chart for Kubernetes
+
+# A chart can be either an 'application' or a 'library' chart.
+#
+# Application charts are a collection of templates that can be packaged into versioned archives
+# to be deployed.
+#
+# Library charts provide useful utilities or functions for the chart developer. They're included as
+# a dependency of application charts to inject those utilities and functions into the rendering
+# pipeline. Library charts do not define any templates and therefore cannot be deployed.
+type: application
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+version: 0.1.0
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application.
+appVersion: 1.16.0
+`
 
 const defaultValues = `# Default values for %s.
 # This is a YAML-formatted file.
@@ -62,7 +94,6 @@ replicaCount: 1
 
 image:
   repository: nginx
-  tag: stable
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -99,7 +130,6 @@ ingress:
   hosts:
     - host: chart-example.local
       paths: []
-
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:
@@ -151,12 +181,16 @@ const defaultIgnore = `# Patterns to ignore when building packages.
 const defaultIngress = `{{- if .Values.ingress.enabled -}}
 {{- $fullName := include "<CHARTNAME>.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
+{{- if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
 apiVersion: extensions/v1beta1
+{{- end }}
 kind: Ingress
 metadata:
   name: {{ $fullName }}
   labels:
-{{ include "<CHARTNAME>.labels" . | indent 4 }}
+    {{- include "<CHARTNAME>.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -192,31 +226,29 @@ kind: Deployment
 metadata:
   name: {{ include "<CHARTNAME>.fullname" . }}
   labels:
-{{ include "<CHARTNAME>.labels" . | indent 4 }}
+    {{- include "<CHARTNAME>.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- include "<CHARTNAME>.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
-        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "<CHARTNAME>.selectorLabels" . | nindent 8 }}
     spec:
     {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
     {{- end }}
-      serviceAccountName: {{ template "<CHARTNAME>.serviceAccountName" . }}
+      serviceAccountName: {{ include "<CHARTNAME>.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -251,7 +283,7 @@ kind: Service
 metadata:
   name: {{ include "<CHARTNAME>.fullname" . }}
   labels:
-{{ include "<CHARTNAME>.labels" . | indent 4 }}
+    {{- include "<CHARTNAME>.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -260,16 +292,16 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- include "<CHARTNAME>.selectorLabels" . | nindent 4 }}
 `
+
 const defaultServiceAccount = `{{- if .Values.serviceAccount.create -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ template "<CHARTNAME>.serviceAccountName" . }}
+  name: {{ include "<CHARTNAME>.serviceAccountName" . }}
   labels:
-{{ include "<CHARTNAME>.labels" . | indent 4 }}
+{{ include "<CHARTNAME>.labels" . | nindent 4 }}
 {{- end -}}
 `
 
@@ -292,7 +324,7 @@ const defaultNotes = `1. Get the application URL by running these commands:
 {{- else if contains "ClusterIP" .Values.service.type }}
   export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "<CHARTNAME>.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
   echo "Visit http://127.0.0.1:8080 to use your application"
-  kubectl port-forward $POD_NAME 8080:80
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:80
 {{- end }}
 `
 
@@ -333,13 +365,20 @@ Create chart name and version as used by the chart label.
 Common labels
 */}}
 {{- define "<CHARTNAME>.labels" -}}
-app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
 helm.sh/chart: {{ include "<CHARTNAME>.chart" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{ include "<CHARTNAME>.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
+
+{{/*
+Selector labels
+*/}}
+{{- define "<CHARTNAME>.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "<CHARTNAME>.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
@@ -359,7 +398,7 @@ kind: Pod
 metadata:
   name: "{{ include "<CHARTNAME>.fullname" . }}-test-connection"
   labels:
-{{ include "<CHARTNAME>.labels" . | indent 4 }}
+{{ include "<CHARTNAME>.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": test-success
 spec:
@@ -372,25 +411,33 @@ spec:
 `
 
 // CreateFrom creates a new chart, but scaffolds it from the src chart.
-func CreateFrom(chartfile *chart.Metadata, dest string, src string) error {
-	schart, err := Load(src)
+func CreateFrom(chartfile *chart.Metadata, dest, src string) error {
+	schart, err := loader.Load(src)
 	if err != nil {
-		return fmt.Errorf("could not load %s: %s", src, err)
+		return errors.Wrapf(err, "could not load %s", src)
 	}
 
 	schart.Metadata = chartfile
 
-	var updatedTemplates []*chart.Template
+	var updatedTemplates []*chart.File
 
 	for _, template := range schart.Templates {
-		newData := Transform(string(template.Data), "<CHARTNAME>", schart.Metadata.Name)
-		updatedTemplates = append(updatedTemplates, &chart.Template{Name: template.Name, Data: newData})
+		newData := transform(string(template.Data), schart.Name())
+		updatedTemplates = append(updatedTemplates, &chart.File{Name: template.Name, Data: newData})
 	}
 
 	schart.Templates = updatedTemplates
-	if schart.Values != nil {
-		schart.Values = &chart.Config{Raw: string(Transform(schart.Values.Raw, "<CHARTNAME>", schart.Metadata.Name))}
+	b, err := yaml.Marshal(schart.Values)
+	if err != nil {
+		return errors.Wrap(err, "reading values file")
 	}
+
+	var m map[string]interface{}
+	if err := yaml.Unmarshal(transform(string(b), schart.Name()), &m); err != nil {
+		return errors.Wrap(err, "transforming values file")
+	}
+	schart.Values = m
+
 	return SaveDir(schart, dest)
 }
 
@@ -407,7 +454,7 @@ func CreateFrom(chartfile *chart.Metadata, dest string, src string) error {
 // If Chart.yaml or any directories cannot be created, this will return an
 // error. In such a case, this will attempt to clean up by removing the
 // new chart directory.
-func Create(chartfile *chart.Metadata, dir string) (string, error) {
+func Create(name, dir string) (string, error) {
 	path, err := filepath.Abs(dir)
 	if err != nil {
 		return path, err
@@ -416,29 +463,12 @@ func Create(chartfile *chart.Metadata, dir string) (string, error) {
 	if fi, err := os.Stat(path); err != nil {
 		return path, err
 	} else if !fi.IsDir() {
-		return path, fmt.Errorf("no such directory %s", path)
+		return path, errors.Errorf("no such directory %s", path)
 	}
 
-	n := chartfile.Name
-	cdir := filepath.Join(path, n)
+	cdir := filepath.Join(path, name)
 	if fi, err := os.Stat(cdir); err == nil && !fi.IsDir() {
-		return cdir, fmt.Errorf("file %s already exists and is not a directory", cdir)
-	}
-	if err := os.MkdirAll(cdir, 0755); err != nil {
-		return cdir, err
-	}
-
-	cf := filepath.Join(cdir, ChartfileName)
-	if _, err := os.Stat(cf); err != nil {
-		if err := SaveChartfile(cf, chartfile); err != nil {
-			return cdir, err
-		}
-	}
-
-	for _, d := range []string{TemplatesDir, TemplatesTestsDir, ChartsDir} {
-		if err := os.MkdirAll(filepath.Join(cdir, d), 0755); err != nil {
-			return cdir, err
-		}
+		return cdir, errors.Errorf("file %s already exists and is not a directory", cdir)
 	}
 
 	files := []struct {
@@ -446,9 +476,14 @@ func Create(chartfile *chart.Metadata, dir string) (string, error) {
 		content []byte
 	}{
 		{
+			// Chart.yaml
+			path:    filepath.Join(cdir, ChartfileName),
+			content: []byte(fmt.Sprintf(defaultChartfile, name)),
+		},
+		{
 			// values.yaml
 			path:    filepath.Join(cdir, ValuesfileName),
-			content: []byte(fmt.Sprintf(defaultValues, chartfile.Name)),
+			content: []byte(fmt.Sprintf(defaultValues, name)),
 		},
 		{
 			// .helmignore
@@ -457,38 +492,38 @@ func Create(chartfile *chart.Metadata, dir string) (string, error) {
 		},
 		{
 			// ingress.yaml
-			path:    filepath.Join(cdir, TemplatesDir, IngressFileName),
-			content: Transform(defaultIngress, "<CHARTNAME>", chartfile.Name),
+			path:    filepath.Join(cdir, IngressFileName),
+			content: transform(defaultIngress, name),
 		},
 		{
 			// deployment.yaml
-			path:    filepath.Join(cdir, TemplatesDir, DeploymentName),
-			content: Transform(defaultDeployment, "<CHARTNAME>", chartfile.Name),
+			path:    filepath.Join(cdir, DeploymentName),
+			content: transform(defaultDeployment, name),
 		},
 		{
 			// service.yaml
-			path:    filepath.Join(cdir, TemplatesDir, ServiceName),
-			content: Transform(defaultService, "<CHARTNAME>", chartfile.Name),
+			path:    filepath.Join(cdir, ServiceName),
+			content: transform(defaultService, name),
 		},
 		{
 			// serviceaccount.yaml
-			path:    filepath.Join(cdir, TemplatesDir, ServiceAccountName),
-			content: Transform(defaultServiceAccount, "<CHARTNAME>", chartfile.Name),
+			path:    filepath.Join(cdir, ServiceAccountName),
+			content: transform(defaultServiceAccount, name),
 		},
 		{
 			// NOTES.txt
-			path:    filepath.Join(cdir, TemplatesDir, NotesName),
-			content: Transform(defaultNotes, "<CHARTNAME>", chartfile.Name),
+			path:    filepath.Join(cdir, NotesName),
+			content: transform(defaultNotes, name),
 		},
 		{
 			// _helpers.tpl
-			path:    filepath.Join(cdir, TemplatesDir, HelpersName),
-			content: Transform(defaultHelpers, "<CHARTNAME>", chartfile.Name),
+			path:    filepath.Join(cdir, HelpersName),
+			content: transform(defaultHelpers, name),
 		},
 		{
 			// test-connection.yaml
-			path:    filepath.Join(cdir, TemplatesTestsDir, TestConnectionName),
-			content: Transform(defaultTestConnection, "<CHARTNAME>", chartfile.Name),
+			path:    filepath.Join(cdir, TestConnectionName),
+			content: transform(defaultTestConnection, name),
 		},
 	}
 
@@ -497,9 +532,26 @@ func Create(chartfile *chart.Metadata, dir string) (string, error) {
 			// File exists and is okay. Skip it.
 			continue
 		}
-		if err := ioutil.WriteFile(file.path, file.content, 0644); err != nil {
+		if err := writeFile(file.path, file.content); err != nil {
 			return cdir, err
 		}
 	}
+	// Need to add the ChartsDir explicitly as it does not contain any file OOTB
+	if err := os.MkdirAll(filepath.Join(cdir, ChartsDir), 0755); err != nil {
+		return cdir, err
+	}
 	return cdir, nil
+}
+
+// transform performs a string replacement of the specified source for
+// a given key with the replacement string
+func transform(src, replacement string) []byte {
+	return []byte(strings.ReplaceAll(src, "<CHARTNAME>", replacement))
+}
+
+func writeFile(name string, content []byte) error {
+	if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+		return err
+	}
+	return ioutil.WriteFile(name, content, 0644)
 }

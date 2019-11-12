@@ -16,25 +16,25 @@ limitations under the License.
 
 package repo
 
-import "testing"
-import "io/ioutil"
-import "os"
-import "strings"
+import (
+	"io/ioutil"
+	"os"
+	"strings"
+	"testing"
+)
 
 const testRepositoriesFile = "testdata/repositories.yaml"
 
-func TestRepoFile(t *testing.T) {
-	rf := NewRepoFile()
+func TestFile(t *testing.T) {
+	rf := NewFile()
 	rf.Add(
 		&Entry{
-			Name:  "stable",
-			URL:   "https://example.com/stable/charts",
-			Cache: "stable-index.yaml",
+			Name: "stable",
+			URL:  "https://example.com/stable/charts",
 		},
 		&Entry{
-			Name:  "incubator",
-			URL:   "https://example.com/incubator",
-			Cache: "incubator-index.yaml",
+			Name: "incubator",
+			URL:  "https://example.com/incubator",
 		},
 	)
 
@@ -56,82 +56,89 @@ func TestRepoFile(t *testing.T) {
 	if stable.URL != "https://example.com/stable/charts" {
 		t.Error("Wrong URL for stable")
 	}
-	if stable.Cache != "stable-index.yaml" {
-		t.Error("Wrong cache name for stable")
-	}
 }
 
-func TestNewRepositoriesFile(t *testing.T) {
-	expects := NewRepoFile()
+func TestNewFile(t *testing.T) {
+	expects := NewFile()
 	expects.Add(
 		&Entry{
-			Name:  "stable",
-			URL:   "https://example.com/stable/charts",
-			Cache: "stable-index.yaml",
+			Name: "stable",
+			URL:  "https://example.com/stable/charts",
 		},
 		&Entry{
-			Name:  "incubator",
-			URL:   "https://example.com/incubator",
-			Cache: "incubator-index.yaml",
+			Name: "incubator",
+			URL:  "https://example.com/incubator",
 		},
 	)
 
-	repofile, err := LoadRepositoriesFile(testRepositoriesFile)
+	file, err := LoadFile(testRepositoriesFile)
 	if err != nil {
 		t.Errorf("%q could not be loaded: %s", testRepositoriesFile, err)
 	}
 
-	if len(expects.Repositories) != len(repofile.Repositories) {
-		t.Fatalf("Unexpected repo data: %#v", repofile.Repositories)
+	if len(expects.Repositories) != len(file.Repositories) {
+		t.Fatalf("Unexpected repo data: %#v", file.Repositories)
 	}
 
 	for i, expect := range expects.Repositories {
-		got := repofile.Repositories[i]
+		got := file.Repositories[i]
 		if expect.Name != got.Name {
 			t.Errorf("Expected name %q, got %q", expect.Name, got.Name)
 		}
 		if expect.URL != got.URL {
 			t.Errorf("Expected url %q, got %q", expect.URL, got.URL)
 		}
-		if expect.Cache != got.Cache {
-			t.Errorf("Expected cache %q, got %q", expect.Cache, got.Cache)
-		}
 	}
 }
 
-func TestNewPreV1RepositoriesFile(t *testing.T) {
-	r, err := LoadRepositoriesFile("testdata/old-repositories.yaml")
-	if err != nil && err != ErrRepoOutOfDate {
-		t.Fatal(err)
-	}
-	if len(r.Repositories) != 3 {
-		t.Fatalf("Expected 3 repos: %#v", r)
+func TestRepoFile_Get(t *testing.T) {
+	repo := NewFile()
+	repo.Add(
+		&Entry{
+			Name: "first",
+			URL:  "https://example.com/first",
+		},
+		&Entry{
+			Name: "second",
+			URL:  "https://example.com/second",
+		},
+		&Entry{
+			Name: "third",
+			URL:  "https://example.com/third",
+		},
+		&Entry{
+			Name: "fourth",
+			URL:  "https://example.com/fourth",
+		},
+	)
+
+	name := "second"
+
+	entry := repo.Get(name)
+	if entry == nil {
+		t.Fatalf("Expected repo entry %q to be found", name)
 	}
 
-	// Because they are parsed as a map, we lose ordering.
-	found := false
-	for _, rr := range r.Repositories {
-		if rr.Name == "best-charts-ever" {
-			found = true
-		}
+	if entry.URL != "https://example.com/second" {
+		t.Errorf("Expected repo URL to be %q but got %q", "https://example.com/second", entry.URL)
 	}
-	if !found {
-		t.Errorf("expected the best charts ever. Got %#v", r.Repositories)
+
+	entry = repo.Get("nonexistent")
+	if entry != nil {
+		t.Errorf("Got unexpected entry %+v", entry)
 	}
 }
 
 func TestRemoveRepository(t *testing.T) {
-	sampleRepository := NewRepoFile()
+	sampleRepository := NewFile()
 	sampleRepository.Add(
 		&Entry{
-			Name:  "stable",
-			URL:   "https://example.com/stable/charts",
-			Cache: "stable-index.yaml",
+			Name: "stable",
+			URL:  "https://example.com/stable/charts",
 		},
 		&Entry{
-			Name:  "incubator",
-			URL:   "https://example.com/incubator",
-			Cache: "incubator-index.yaml",
+			Name: "incubator",
+			URL:  "https://example.com/incubator",
 		},
 	)
 
@@ -148,23 +155,20 @@ func TestRemoveRepository(t *testing.T) {
 }
 
 func TestUpdateRepository(t *testing.T) {
-	sampleRepository := NewRepoFile()
+	sampleRepository := NewFile()
 	sampleRepository.Add(
 		&Entry{
-			Name:  "stable",
-			URL:   "https://example.com/stable/charts",
-			Cache: "stable-index.yaml",
+			Name: "stable",
+			URL:  "https://example.com/stable/charts",
 		},
 		&Entry{
-			Name:  "incubator",
-			URL:   "https://example.com/incubator",
-			Cache: "incubator-index.yaml",
+			Name: "incubator",
+			URL:  "https://example.com/incubator",
 		},
 	)
 	newRepoName := "sample"
 	sampleRepository.Update(&Entry{Name: newRepoName,
-		URL:   "https://example.com/sample",
-		Cache: "sample-index.yaml",
+		URL: "https://example.com/sample",
 	})
 
 	if !sampleRepository.Has(newRepoName) {
@@ -173,8 +177,7 @@ func TestUpdateRepository(t *testing.T) {
 	repoCount := len(sampleRepository.Repositories)
 
 	sampleRepository.Update(&Entry{Name: newRepoName,
-		URL:   "https://example.com/sample",
-		Cache: "sample-index.yaml",
+		URL: "https://example.com/sample",
 	})
 
 	if repoCount != len(sampleRepository.Repositories) {
@@ -183,30 +186,28 @@ func TestUpdateRepository(t *testing.T) {
 }
 
 func TestWriteFile(t *testing.T) {
-	sampleRepository := NewRepoFile()
+	sampleRepository := NewFile()
 	sampleRepository.Add(
 		&Entry{
-			Name:  "stable",
-			URL:   "https://example.com/stable/charts",
-			Cache: "stable-index.yaml",
+			Name: "stable",
+			URL:  "https://example.com/stable/charts",
 		},
 		&Entry{
-			Name:  "incubator",
-			URL:   "https://example.com/incubator",
-			Cache: "incubator-index.yaml",
+			Name: "incubator",
+			URL:  "https://example.com/incubator",
 		},
 	)
 
-	repoFile, err := ioutil.TempFile("", "helm-repo")
+	file, err := ioutil.TempFile("", "helm-repo")
 	if err != nil {
 		t.Errorf("failed to create test-file (%v)", err)
 	}
-	defer os.Remove(repoFile.Name())
-	if err := sampleRepository.WriteFile(repoFile.Name(), 744); err != nil {
+	defer os.Remove(file.Name())
+	if err := sampleRepository.WriteFile(file.Name(), 0644); err != nil {
 		t.Errorf("failed to write file (%v)", err)
 	}
 
-	repos, err := LoadRepositoriesFile(repoFile.Name())
+	repos, err := LoadFile(file.Name())
 	if err != nil {
 		t.Errorf("failed to load file (%v)", err)
 	}
@@ -218,10 +219,9 @@ func TestWriteFile(t *testing.T) {
 }
 
 func TestRepoNotExists(t *testing.T) {
-	_, err := LoadRepositoriesFile("/this/path/does/not/exist.yaml")
-	if err == nil {
+	if _, err := LoadFile("/this/path/does/not/exist.yaml"); err == nil {
 		t.Errorf("expected err to be non-nil when path does not exist")
-	} else if !strings.Contains(err.Error(), "You might need to run `helm init`") {
-		t.Errorf("expected prompt to run `helm init` when repositories file does not exist")
+	} else if !strings.Contains(err.Error(), "couldn't load repositories file") {
+		t.Errorf("expected prompt `couldn't load repositories file`")
 	}
 }

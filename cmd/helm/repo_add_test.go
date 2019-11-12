@@ -18,126 +18,122 @@ package main
 
 import (
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"strings"
+	"io/ioutil"
+	"path/filepath"
 	"sync"
 	"testing"
 
-	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v2"
 
-	"k8s.io/helm/pkg/helm"
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/repo"
-	"k8s.io/helm/pkg/repo/repotest"
+	"helm.sh/helm/v3/internal/test/ensure"
+	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/repo/repotest"
 )
 
-var testName = "test-name"
-
 func TestRepoAddCmd(t *testing.T) {
-	srv, thome, err := repotest.NewTempServer("testdata/testserver/*.*")
+	srv, err := repotest.NewTempServer("testdata/testserver/*.*")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer srv.Stop()
 
-	cleanup := resetEnv()
-	defer func() {
-		srv.Stop()
-		os.RemoveAll(thome.String())
-		cleanup()
-	}()
-	if err := ensureTestHome(thome, t); err != nil {
-		t.Fatal(err)
-	}
+	repoFile := filepath.Join(ensure.TempDir(t), "repositories.yaml")
 
-	settings.Home = thome
+	tests := []cmdTestCase{{
+		name:   "add a repository",
+		cmd:    fmt.Sprintf("repo add test-name %s --repository-config %s", srv.URL(), repoFile),
+		golden: "output/repo-add.txt",
+	}}
 
-	tests := []releaseCase{
-		{
-			name:     "add a repository",
-			args:     []string{testName, srv.URL()},
-			expected: "\"" + testName + "\" has been added to your repositories",
-		},
-	}
-
-	runReleaseCases(t, tests, func(c *helm.FakeClient, out io.Writer) *cobra.Command {
-		return newRepoAddCmd(out)
-	})
+	runTestCmd(t, tests)
 }
 
 func TestRepoAdd(t *testing.T) {
-	ts, thome, err := repotest.NewTempServer("testdata/testserver/*.*")
+	ts, err := repotest.NewTempServer("testdata/testserver/*.*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Stop()
+
+	repoFile := filepath.Join(ensure.TempDir(t), "repositories.yaml")
+
+	const testRepoName = "test-name"
+
+	o := &repoAddOptions{
+		name:     testRepoName,
+		url:      ts.URL(),
+		noUpdate: true,
+		repoFile: repoFile,
+	}
+
+	if err := o.run(ioutil.Discard); err != nil {
+		t.Error(err)
+	}
+
+	f, err := repo.LoadFile(repoFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cleanup := resetEnv()
-	hh := thome
-	defer func() {
-		ts.Stop()
-		os.RemoveAll(thome.String())
-		cleanup()
-	}()
-	if err := ensureTestHome(hh, t); err != nil {
-		t.Fatal(err)
+	if !f.Has(testRepoName) {
+		t.Errorf("%s was not successfully inserted into %s", testRepoName, repoFile)
 	}
 
-	settings.Home = thome
+	o.noUpdate = false
 
-	if err := addRepository(testName, ts.URL(), "", "", hh, "", "", "", true); err != nil {
-		t.Error(err)
-	}
-
-	f, err := repo.LoadRepositoriesFile(hh.RepositoryFile())
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !f.Has(testName) {
-		t.Errorf("%s was not successfully inserted into %s", testName, hh.RepositoryFile())
-	}
-
-	if err := addRepository(testName, ts.URL(), "", "", hh, "", "", "", false); err != nil {
+	if err := o.run(ioutil.Discard); err != nil {
 		t.Errorf("Repository was not updated: %s", err)
 	}
 
-	if err := addRepository(testName, ts.URL(), "", "", hh, "", "", "", false); err != nil {
+	if err := o.run(ioutil.Discard); err != nil {
 		t.Errorf("Duplicate repository name was added")
 	}
 }
+
 func TestRepoAddConcurrentGoRoutines(t *testing.T) {
-	ts, thome, err := repotest.NewTempServer("testdata/testserver/*.*")
+	const testName = "test-name"
+	repoFile := filepath.Join(ensure.TempDir(t), "repositories.yaml")
+	repoAddConcurrent(t, testName, repoFile)
+}
+
+func TestRepoAddConcurrentDirNotExist(t *testing.T) {
+	const testName = "test-name-2"
+	repoFile := filepath.Join(ensure.TempDir(t), "foo", "repositories.yaml")
+	repoAddConcurrent(t, testName, repoFile)
+}
+
+func repoAddConcurrent(t *testing.T, testName, repoFile string) {
+	ts, err := repotest.NewTempServer("testdata/testserver/*.*")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	cleanup := resetEnv()
-	defer func() {
-		ts.Stop()
-		os.RemoveAll(thome.String())
-		cleanup()
-	}()
-
-	settings.Home = thome
-	if err := ensureTestHome(settings.Home, t); err != nil {
-		t.Fatal(err)
-	}
+	defer ts.Stop()
 
 	var wg sync.WaitGroup
 	wg.Add(3)
 	for i := 0; i < 3; i++ {
 		go func(name string) {
 			defer wg.Done()
-			if err := addRepository(name, ts.URL(), "", "", settings.Home, "", "", "", true); err != nil {
+			o := &repoAddOptions{
+				name:     name,
+				url:      ts.URL(),
+				noUpdate: true,
+				repoFile: repoFile,
+			}
+			if err := o.run(ioutil.Discard); err != nil {
 				t.Error(err)
 			}
 		}(fmt.Sprintf("%s-%d", testName, i))
 	}
 	wg.Wait()
 
-	f, err := repo.LoadRepositoriesFile(settings.Home.RepositoryFile())
+	b, err := ioutil.ReadFile(repoFile)
 	if err != nil {
+		t.Error(err)
+	}
+
+	var f repo.File
+	if err := yaml.Unmarshal(b, &f); err != nil {
 		t.Error(err)
 	}
 
@@ -145,72 +141,7 @@ func TestRepoAddConcurrentGoRoutines(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		name = fmt.Sprintf("%s-%d", testName, i)
 		if !f.Has(name) {
-			t.Errorf("%s was not successfully inserted into %s", name, settings.Home.RepositoryFile())
+			t.Errorf("%s was not successfully inserted into %s: %s", name, repoFile, f.Repositories[0])
 		}
-	}
-}
-
-// Same as TestRepoAddConcurrentGoRoutines but with repository additions in sub-processes
-func TestRepoAddConcurrentSubProcesses(t *testing.T) {
-	goWantHelperProcess := os.Getenv("GO_WANT_HELPER_PROCESS")
-	if goWantHelperProcess == "" {
-		// parent
-
-		ts, thome, err := repotest.NewTempServer("testdata/testserver/*.*")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		settings.Home = thome
-
-		cleanup := resetEnv()
-		defer func() {
-			ts.Stop()
-			os.RemoveAll(thome.String())
-			cleanup()
-		}()
-		if err := ensureTestHome(settings.Home, t); err != nil {
-			t.Fatal(err)
-		}
-
-		var wg sync.WaitGroup
-		wg.Add(2)
-		for i := 0; i < 2; i++ {
-			go func(name string) {
-				defer wg.Done()
-
-				cmd := exec.Command(os.Args[0], "-test.run=^TestRepoAddConcurrentSubProcesses$")
-				cmd.Env = append(os.Environ(), fmt.Sprintf("GO_WANT_HELPER_PROCESS=%s,%s", name, ts.URL()), fmt.Sprintf("HELM_HOME=%s", settings.Home))
-				out, err := cmd.CombinedOutput()
-				if len(out) > 0 || err != nil {
-					t.Fatalf("child process: %q, %v", out, err)
-				}
-			}(fmt.Sprintf("%s-%d", testName, i))
-		}
-		wg.Wait()
-
-		f, err := repo.LoadRepositoriesFile(settings.Home.RepositoryFile())
-		if err != nil {
-			t.Error(err)
-		}
-
-		var name string
-		for i := 0; i < 2; i++ {
-			name = fmt.Sprintf("%s-%d", testName, i)
-			if !f.Has(name) {
-				t.Errorf("%s was not successfully inserted into %s", name, settings.Home.RepositoryFile())
-			}
-		}
-	} else {
-		// child
-		s := strings.Split(goWantHelperProcess, ",")
-		settings.Home = helmpath.Home(os.Getenv("HELM_HOME"))
-		repoName := s[0]
-		tsURL := s[1]
-		if err := addRepository(repoName, tsURL, "", "", settings.Home, "", "", "", true); err != nil {
-			t.Fatal(err)
-		}
-
-		os.Exit(0)
 	}
 }

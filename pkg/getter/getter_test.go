@@ -16,14 +16,17 @@ limitations under the License.
 package getter
 
 import (
-	"os"
 	"testing"
+
+	"helm.sh/helm/v3/pkg/cli"
 )
+
+const pluginDir = "testdata/plugins"
 
 func TestProvider(t *testing.T) {
 	p := Provider{
 		[]string{"one", "three"},
-		func(h, e, l, m string) (Getter, error) { return nil, nil },
+		func(_ ...Option) (Getter, error) { return nil, nil },
 	}
 
 	if !p.Provides("three") {
@@ -33,8 +36,8 @@ func TestProvider(t *testing.T) {
 
 func TestProviders(t *testing.T) {
 	ps := Providers{
-		{[]string{"one", "three"}, func(h, e, l, m string) (Getter, error) { return nil, nil }},
-		{[]string{"two", "four"}, func(h, e, l, m string) (Getter, error) { return nil, nil }},
+		{[]string{"one", "three"}, func(_ ...Option) (Getter, error) { return nil, nil }},
+		{[]string{"two", "four"}, func(_ ...Option) (Getter, error) { return nil, nil }},
 	}
 
 	if _, err := ps.ByScheme("one"); err != nil {
@@ -50,13 +53,9 @@ func TestProviders(t *testing.T) {
 }
 
 func TestAll(t *testing.T) {
-	oldhh := os.Getenv("HELM_HOME")
-	defer os.Setenv("HELM_HOME", oldhh)
-	os.Setenv("HELM_HOME", "")
-
-	env := hh(false)
-
-	all := All(env)
+	all := All(&cli.EnvSettings{
+		PluginsDirectory: pluginDir,
+	})
 	if len(all) != 3 {
 		t.Errorf("expected 3 providers (default plus two plugins), got %d", len(all))
 	}
@@ -67,15 +66,13 @@ func TestAll(t *testing.T) {
 }
 
 func TestByScheme(t *testing.T) {
-	oldhh := os.Getenv("HELM_HOME")
-	defer os.Setenv("HELM_HOME", oldhh)
-	os.Setenv("HELM_HOME", "")
-
-	env := hh(false)
-	if _, err := ByScheme("test", env); err != nil {
+	g := All(&cli.EnvSettings{
+		PluginsDirectory: pluginDir,
+	})
+	if _, err := g.ByScheme("test"); err != nil {
 		t.Error(err)
 	}
-	if _, err := ByScheme("https", env); err != nil {
+	if _, err := g.ByScheme("https"); err != nil {
 		t.Error(err)
 	}
 }

@@ -18,23 +18,26 @@ package main
 
 import (
 	"io"
+	"os"
 
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+
+	"helm.sh/helm/v3/cmd/helm/require"
 )
 
 var repoHelm = `
 This command consists of multiple subcommands to interact with chart repositories.
 
 It can be used to add, remove, list, and index chart repositories.
-Example usage:
-    $ helm repo add [NAME] [REPO_URL]
 `
 
 func newRepoCmd(out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "repo [FLAGS] add|remove|list|index|update [ARGS]",
-		Short: "Add, list, remove, update, and index chart repositories",
+		Use:   "repo add|remove|list|index|update [ARGS]",
+		Short: "add, list, remove, update, and index chart repositories",
 		Long:  repoHelm,
+		Args:  require.NoArgs,
 	}
 
 	cmd.AddCommand(newRepoAddCmd(out))
@@ -44,4 +47,8 @@ func newRepoCmd(out io.Writer) *cobra.Command {
 	cmd.AddCommand(newRepoUpdateCmd(out))
 
 	return cmd
+}
+
+func isNotExist(err error) bool {
+	return os.IsNotExist(errors.Cause(err))
 }

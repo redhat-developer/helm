@@ -17,32 +17,30 @@ limitations under the License.
 package rules
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"k8s.io/helm/pkg/chartutil"
-	"k8s.io/helm/pkg/lint/support"
-	"k8s.io/helm/pkg/proto/hapi/chart"
+	"github.com/pkg/errors"
+
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chartutil"
+	"helm.sh/helm/v3/pkg/lint/support"
 )
 
 const (
-	badChartDir     = "testdata/badchartfile"
-	badNameChartDir = "testdata/badnamechart"
-	goodChartDir    = "testdata/goodone"
+	badChartDir  = "testdata/badchartfile"
+	goodChartDir = "testdata/goodone"
 )
 
 var (
 	badChartFilePath         = filepath.Join(badChartDir, "Chart.yaml")
-	badNameChartFilePath     = filepath.Join(badNameChartDir, "Chart.yaml")
 	goodChartFilePath        = filepath.Join(goodChartDir, "Chart.yaml")
 	nonExistingChartFilePath = filepath.Join(os.TempDir(), "Chart.yaml")
 )
 
-var badChart, chatLoadRrr = chartutil.LoadChartfile(badChartFilePath)
-var badNameChart, _ = chartutil.LoadChartfile(badNameChartFilePath)
+var badChart, _ = chartutil.LoadChartfile(badChartFilePath)
 var goodChart, _ = chartutil.LoadChartfile(goodChartFilePath)
 
 // Validation functions Test
@@ -69,16 +67,9 @@ func TestValidateChartYamlFormat(t *testing.T) {
 }
 
 func TestValidateChartName(t *testing.T) {
-	err := validateChartNamePresence(badChart)
+	err := validateChartName(badChart)
 	if err == nil {
 		t.Errorf("validateChartName to return a linter error, got no error")
-	}
-}
-
-func TestValidateChartNameFormat(t *testing.T) {
-	err := validateChartNameFormat(badNameChart)
-	if err == nil {
-		t.Errorf("validateChartNameFormat to return a linter error, got no error")
 	}
 }
 
@@ -106,7 +97,7 @@ func TestValidateChartVersion(t *testing.T) {
 		ErrorMsg string
 	}{
 		{"", "version is required"},
-		{"0", "0 is less than or equal to 0"},
+		{"1.2.3.4", "version '1.2.3.4' is not a valid SemVer"},
 		{"waps", "'waps' is not a valid SemVer"},
 		{"-3", "'-3' is not a valid SemVer"},
 	}
@@ -127,24 +118,6 @@ func TestValidateChartVersion(t *testing.T) {
 		if err != nil {
 			t.Errorf("validateChartVersion(%s) to return no error, got a linter error", version)
 		}
-	}
-}
-
-func TestValidateChartEngine(t *testing.T) {
-	var successTest = []string{"", "gotpl"}
-
-	for _, engine := range successTest {
-		badChart.Engine = engine
-		err := validateChartEngine(badChart)
-		if err != nil {
-			t.Errorf("validateChartEngine(%s) to return no error, got a linter error %s", engine, err.Error())
-		}
-	}
-
-	badChart.Engine = "foobar"
-	err := validateChartEngine(badChart)
-	if err == nil || !strings.Contains(err.Error(), "not valid. Valid options are [gotpl") {
-		t.Errorf("validateChartEngine(%s) to return an error, got no error", badChart.Engine)
 	}
 }
 
@@ -236,8 +209,8 @@ func TestChartfile(t *testing.T) {
 	Chartfile(&linter)
 	msgs := linter.Messages
 
-	if len(msgs) != 5 {
-		t.Errorf("Expected 4 errors, got %d", len(msgs))
+	if len(msgs) != 7 {
+		t.Errorf("Expected 7 errors, got %d", len(msgs))
 	}
 
 	if !strings.Contains(msgs[0].Err.Error(), "name is required") {
@@ -248,16 +221,24 @@ func TestChartfile(t *testing.T) {
 		t.Errorf("Unexpected message 1: %s", msgs[1].Err)
 	}
 
-	if !strings.Contains(msgs[2].Err.Error(), "apiVersion is required") {
+	if !strings.Contains(msgs[2].Err.Error(), "apiVersion is required. The value must be either \"v1\" or \"v2\"") {
 		t.Errorf("Unexpected message 2: %s", msgs[2].Err)
 	}
 
-	if !strings.Contains(msgs[3].Err.Error(), "version 0.0.0 is less than or equal to 0") {
-		t.Errorf("Unexpected message 3: %s", msgs[2].Err)
+	if !strings.Contains(msgs[3].Err.Error(), "version '0.0.0.0' is not a valid SemVer") {
+		t.Errorf("Unexpected message 3: %s", msgs[3].Err)
 	}
 
 	if !strings.Contains(msgs[4].Err.Error(), "icon is recommended") {
-		t.Errorf("Unexpected message 4: %s", msgs[3].Err)
+		t.Errorf("Unexpected message 4: %s", msgs[4].Err)
+	}
+
+	if !strings.Contains(msgs[5].Err.Error(), "chart type is not valid in apiVersion") {
+		t.Errorf("Unexpected message 5: %s", msgs[5].Err)
+	}
+
+	if !strings.Contains(msgs[6].Err.Error(), "dependencies are not valid in the Chart file with apiVersion") {
+		t.Errorf("Unexpected message 6: %s", msgs[6].Err)
 	}
 
 }

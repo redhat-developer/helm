@@ -20,86 +20,64 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"k8s.io/helm/pkg/downloader"
-	"k8s.io/helm/pkg/getter"
-	"k8s.io/helm/pkg/helm/helmpath"
+
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/downloader"
+	"helm.sh/helm/v3/pkg/getter"
 )
 
 const dependencyUpDesc = `
-Update the on-disk dependencies to mirror the requirements.yaml file.
+Update the on-disk dependencies to mirror Chart.yaml.
 
-This command verifies that the required charts, as expressed in 'requirements.yaml',
+This command verifies that the required charts, as expressed in 'Chart.yaml',
 are present in 'charts/' and are at an acceptable version. It will pull down
 the latest charts that satisfy the dependencies, and clean up old dependencies.
 
 On successful update, this will generate a lock file that can be used to
-rebuild the requirements to an exact version.
+rebuild the dependencies to an exact version.
 
-Dependencies are not required to be represented in 'requirements.yaml'. For that
+Dependencies are not required to be represented in 'Chart.yaml'. For that
 reason, an update command will not remove charts unless they are (a) present
-in the requirements.yaml file, but (b) at the wrong version.
+in the Chart.yaml file, but (b) at the wrong version.
 `
-
-// dependencyUpdateCmd describes a 'helm dependency update'
-type dependencyUpdateCmd struct {
-	out         io.Writer
-	chartpath   string
-	helmhome    helmpath.Home
-	verify      bool
-	keyring     string
-	skipRefresh bool
-}
 
 // newDependencyUpdateCmd creates a new dependency update command.
 func newDependencyUpdateCmd(out io.Writer) *cobra.Command {
-	duc := &dependencyUpdateCmd{out: out}
+	client := action.NewDependency()
 
 	cmd := &cobra.Command{
-		Use:     "update [flags] CHART",
+		Use:     "update CHART",
 		Aliases: []string{"up"},
-		Short:   "Update charts/ based on the contents of requirements.yaml",
+		Short:   "update charts/ based on the contents of Chart.yaml",
 		Long:    dependencyUpDesc,
+		Args:    require.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cp := "."
+			chartpath := "."
 			if len(args) > 0 {
-				cp = args[0]
+				chartpath = filepath.Clean(args[0])
 			}
-
-			var err error
-			duc.chartpath, err = filepath.Abs(cp)
-			if err != nil {
-				return err
+			man := &downloader.Manager{
+				Out:              out,
+				ChartPath:        chartpath,
+				Keyring:          client.Keyring,
+				SkipUpdate:       client.SkipRefresh,
+				Getters:          getter.All(settings),
+				RepositoryConfig: settings.RepositoryConfig,
+				RepositoryCache:  settings.RepositoryCache,
+				Debug:            settings.Debug,
 			}
-
-			duc.helmhome = settings.Home
-
-			return duc.run()
+			if client.Verify {
+				man.Verify = downloader.VerifyAlways
+			}
+			return man.Update()
 		},
 	}
 
 	f := cmd.Flags()
-	f.BoolVar(&duc.verify, "verify", false, "Verify the packages against signatures")
-	f.StringVar(&duc.keyring, "keyring", defaultKeyring(), "Keyring containing public keys")
-	f.BoolVar(&duc.skipRefresh, "skip-refresh", false, "Do not refresh the local repository cache")
+	f.BoolVar(&client.Verify, "verify", false, "verify the packages against signatures")
+	f.StringVar(&client.Keyring, "keyring", defaultKeyring(), "keyring containing public keys")
+	f.BoolVar(&client.SkipRefresh, "skip-refresh", false, "do not refresh the local repository cache")
 
 	return cmd
-}
-
-// run runs the full dependency update process.
-func (d *dependencyUpdateCmd) run() error {
-	man := &downloader.Manager{
-		Out:        d.out,
-		ChartPath:  d.chartpath,
-		HelmHome:   d.helmhome,
-		Keyring:    d.keyring,
-		SkipUpdate: d.skipRefresh,
-		Getters:    getter.All(settings),
-	}
-	if d.verify {
-		man.Verify = downloader.VerifyAlways
-	}
-	if settings.Debug {
-		man.Debug = true
-	}
-	return man.Update()
 }

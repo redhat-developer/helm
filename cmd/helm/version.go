@@ -17,139 +17,75 @@ limitations under the License.
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
+	"text/template"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 
-	apiVersion "k8s.io/apimachinery/pkg/version"
-	"k8s.io/helm/pkg/helm"
-	pb "k8s.io/helm/pkg/proto/hapi/version"
-	"k8s.io/helm/pkg/version"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/internal/version"
 )
 
 const versionDesc = `
-Show the client and server versions for Helm and tiller.
+Show the version for Helm.
 
-This will print a representation of the client and server versions of Helm and
-Tiller. The output will look something like this:
+This will print a representation the version of Helm.
+The output will look something like this:
 
-Client: &version.Version{SemVer:"v2.0.0", GitCommit:"ff52399e51bb880526e9cd0ed8386f6433b74da1", GitTreeState:"clean"}
-Server: &version.Version{SemVer:"v2.0.0", GitCommit:"b0c113dfb9f612a9add796549da66c0d294508a3", GitTreeState:"clean"}
+version.BuildInfo{Version:"v2.0.0", GitCommit:"ff52399e51bb880526e9cd0ed8386f6433b74da1", GitTreeState:"clean"}
 
-- SemVer is the semantic version of the release.
+- Version is the semantic version of the release.
 - GitCommit is the SHA for the commit that this version was built from.
 - GitTreeState is "clean" if there are no local code changes when this binary was
   built, and "dirty" if the binary was built from locally modified code.
-
-To print just the client version, use '--client'. To print just the server version,
-use '--server'.
 `
 
-type versionCmd struct {
-	out        io.Writer
-	client     helm.Interface
-	showClient bool
-	showServer bool
-	short      bool
-	template   string
+type versionOptions struct {
+	short    bool
+	template string
 }
 
-func newVersionCmd(c helm.Interface, out io.Writer) *cobra.Command {
-	version := &versionCmd{
-		client: c,
-		out:    out,
-	}
+func newVersionCmd(out io.Writer) *cobra.Command {
+	o := &versionOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Print the client/server version information",
+		Short: "print the client version information",
 		Long:  versionDesc,
+		Args:  require.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// If neither is explicitly set, show both.
-			if !version.showClient && !version.showServer {
-				version.showClient, version.showServer = true, true
-			}
-			return version.run()
+			return o.run(out)
 		},
 	}
 	f := cmd.Flags()
-	settings.AddFlagsTLS(f)
-	f.BoolVarP(&version.showClient, "client", "c", false, "Client version only")
-	f.BoolVarP(&version.showServer, "server", "s", false, "Server version only")
-	f.BoolVar(&version.short, "short", false, "Print the version number")
-	f.StringVar(&version.template, "template", "", "Template for version string format")
-
-	// set defaults from environment
-	settings.InitTLS(f)
+	f.BoolVar(&o.short, "short", false, "print the version number")
+	f.StringVar(&o.template, "template", "", "template for version string format")
+	f.BoolP("client", "c", true, "display client version information")
+	f.MarkHidden("client")
 
 	return cmd
 }
 
-func (v *versionCmd) run() error {
-	// Store map data for template rendering
-	data := map[string]interface{}{}
-
-	if v.showClient {
-		cv := version.GetVersionProto()
-		if v.template != "" {
-			data["Client"] = cv
-		} else {
-			fmt.Fprintf(v.out, "Client: %s\n", formatVersion(cv, v.short))
-		}
-	}
-
-	if !v.showServer {
-		return tpl(v.template, data, v.out)
-	}
-
-	// We do this manually instead of in PreRun because we only
-	// need a tunnel if server version is requested.
-	if err := setupConnection(); err != nil {
-		return err
-	}
-	v.client = ensureHelmClient(v.client)
-
-	if settings.Debug {
-		k8sVersion, err := getK8sVersion()
+func (o *versionOptions) run(out io.Writer) error {
+	if o.template != "" {
+		tt, err := template.New("_").Parse(o.template)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(v.out, "Kubernetes: %#v\n", k8sVersion)
+		return tt.Execute(out, version.Get())
 	}
-	resp, err := v.client.GetVersion()
-	if err != nil {
-		if grpc.Code(err) == codes.Unimplemented {
-			return errors.New("server is too old to know its version")
+	fmt.Fprintln(out, formatVersion(o.short))
+	return nil
+}
+
+func formatVersion(short bool) string {
+	v := version.Get()
+	if short {
+		if len(v.GitCommit) >= 7 {
+			return fmt.Sprintf("%s+g%s", v.Version, v.GitCommit[:7])
 		}
-		debug("%s", err)
-		return errors.New("cannot connect to Tiller")
+		return version.GetVersion()
 	}
-
-	if v.template != "" {
-		data["Server"] = resp.Version
-	} else {
-		fmt.Fprintf(v.out, "Server: %s\n", formatVersion(resp.Version, v.short))
-	}
-	return tpl(v.template, data, v.out)
-}
-
-func getK8sVersion() (*apiVersion.Info, error) {
-	var v *apiVersion.Info
-	_, client, err := getKubeClient(settings.KubeContext, settings.KubeConfig)
-	if err != nil {
-		return v, err
-	}
-	v, err = client.Discovery().ServerVersion()
-	return v, err
-}
-
-func formatVersion(v *pb.Version, short bool) string {
-	if short && v.GitCommit != "" {
-		return fmt.Sprintf("%s+g%s", v.SemVer, v.GitCommit[:7])
-	}
-	return fmt.Sprintf("&version.Version{SemVer:\"%s\", GitCommit:\"%s\", GitTreeState:\"%s\"}", v.SemVer, v.GitCommit, v.GitTreeState)
+	return fmt.Sprintf("%#v", v)
 }

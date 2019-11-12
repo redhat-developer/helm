@@ -16,18 +16,18 @@ limitations under the License.
 package main
 
 import (
-	"errors"
 	"io"
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/downloader"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/action"
 )
 
 const verifyDesc = `
 Verify that the given chart has a valid provenance file.
 
-Provenance files provide cryptographic verification that a chart has not been
+Provenance files provide crytographic verification that a chart has not been
 tampered with, and was packaged by a trusted provider.
 
 This command can be used to verify a local chart. Several other commands provide
@@ -35,36 +35,20 @@ This command can be used to verify a local chart. Several other commands provide
 the 'helm package --sign' command.
 `
 
-type verifyCmd struct {
-	keyring   string
-	chartfile string
-
-	out io.Writer
-}
-
 func newVerifyCmd(out io.Writer) *cobra.Command {
-	vc := &verifyCmd{out: out}
+	client := action.NewVerify()
 
 	cmd := &cobra.Command{
-		Use:   "verify [flags] PATH",
-		Short: "Verify that a chart at the given path has been signed and is valid",
+		Use:   "verify PATH",
+		Short: "verify that a chart at the given path has been signed and is valid",
 		Long:  verifyDesc,
+		Args:  require.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return errors.New("a path to a package file is required")
-			}
-			vc.chartfile = args[0]
-			return vc.run()
+			return client.Run(args[0])
 		},
 	}
 
-	f := cmd.Flags()
-	f.StringVar(&vc.keyring, "keyring", defaultKeyring(), "Keyring containing public keys")
+	cmd.Flags().StringVar(&client.Keyring, "keyring", defaultKeyring(), "keyring containing public keys")
 
 	return cmd
-}
-
-func (v *verifyCmd) run() error {
-	_, err := downloader.VerifyChart(v.chartfile, v.keyring)
-	return err
 }

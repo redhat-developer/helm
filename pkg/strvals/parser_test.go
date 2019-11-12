@@ -18,7 +18,7 @@ package strvals
 import (
 	"testing"
 
-	"github.com/ghodss/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 func TestSetIndex(t *testing.T) {
@@ -459,6 +459,39 @@ func TestParseIntoFile(t *testing.T) {
 		v := string(rs)
 		if v != "path1" {
 			t.Errorf("%s: runesToVal: Expected value path1, got %s", input, v)
+			return "", nil
+		}
+		return "value1", nil
+	}
+
+	if err := ParseIntoFile(input, got, rs2v); err != nil {
+		t.Fatal(err)
+	}
+
+	y1, err := yaml.Marshal(expect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	y2, err := yaml.Marshal(got)
+	if err != nil {
+		t.Fatalf("Error serializing parsed value: %s", err)
+	}
+
+	if string(y1) != string(y2) {
+		t.Errorf("%s: Expected:\n%s\nGot:\n%s", input, y1, y2)
+	}
+}
+
+func TestParseIntoFile(t *testing.T) {
+	got := map[string]interface{}{}
+	input := "name1=path1"
+	expect := map[string]interface{}{
+		"name1": "value1",
+	}
+	rs2v := func(rs []rune) (interface{}, error) {
+		v := string(rs)
+		if v != "path1" {
+			t.Errorf("%s: RunesValueReader: Expected value path1, got %s", input, v)
 			return "", nil
 		}
 		return "value1", nil

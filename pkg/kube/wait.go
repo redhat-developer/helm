@@ -14,258 +14,331 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package kube // import "k8s.io/helm/pkg/kube"
+package kube // import "helm.sh/helm/v3/pkg/kube"
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	appsv1beta1 "k8s.io/api/apps/v1beta1"
 	appsv1beta2 "k8s.io/api/apps/v1beta2"
-	"k8s.io/api/core/v1"
-	extensions "k8s.io/api/extensions/v1beta1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
+	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
-	deploymentutil "k8s.io/kubernetes/pkg/controller/deployment/util"
+	"k8s.io/client-go/kubernetes/scheme"
+
+	deploymentutil "helm.sh/helm/v3/internal/third_party/k8s.io/kubernetes/deployment/util"
 )
 
-// deployment holds associated replicaSets for a deployment
-type deployment struct {
-	replicaSets *appsv1.ReplicaSet
-	deployment  *appsv1.Deployment
+type waiter struct {
+	c       kubernetes.Interface
+	timeout time.Duration
+	log     func(string, ...interface{})
 }
 
 // waitForResources polls to get the current status of all pods, PVCs, and Services
 // until all are ready or a timeout is reached
-func (c *Client) waitForResources(timeout time.Duration, created Result) error {
-	c.Log("beginning wait for %d resources with timeout of %v", len(created), timeout)
+func (w *waiter) waitForResources(created ResourceList) error {
+	w.log("beginning wait for %d resources with timeout of %v", len(created), w.timeout)
 
-	kcs, err := c.KubernetesClientSet()
-	if err != nil {
-		return err
-	}
-	return wait.Poll(2*time.Second, timeout, func() (bool, error) {
-		pods := []v1.Pod{}
-		services := []v1.Service{}
-		pvc := []v1.PersistentVolumeClaim{}
-		deployments := []deployment{}
+	return wait.Poll(2*time.Second, w.timeout, func() (bool, error) {
 		for _, v := range created {
-			switch value := asVersionedOrUnstructured(v).(type) {
-			case *v1.ReplicationController:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector)
+			var (
+				// This defaults to true, otherwise we get to a point where
+				// things will always return false unless one of the objects
+				// that manages pods has been hit
+				ok  = true
+				err error
+			)
+			switch value := AsVersioned(v).(type) {
+			case *corev1.Pod:
+				pod, err := w.c.CoreV1().Pods(v.Namespace).Get(v.Name, metav1.GetOptions{})
+				if err != nil || !w.isPodReady(pod) {
+					return false, err
+				}
+			case *appsv1.Deployment, *appsv1beta1.Deployment, *appsv1beta2.Deployment, *extensionsv1beta1.Deployment:
+				currentDeployment, err := w.c.AppsV1().Deployments(v.Namespace).Get(v.Name, metav1.GetOptions{})
 				if err != nil {
 					return false, err
 				}
-				pods = append(pods, list...)
-			case *v1.Pod:
-				pod, err := kcs.CoreV1().Pods(value.Namespace).Get(value.Name, metav1.GetOptions{})
-				if err != nil {
-					return false, err
-				}
-				pods = append(pods, *pod)
-			case *appsv1.Deployment:
-				currentDeployment, err := kcs.AppsV1().Deployments(value.Namespace).Get(value.Name, metav1.GetOptions{})
-				if err != nil {
-					return false, err
+				// If paused deployment will never be ready
+				if currentDeployment.Spec.Paused {
+					continue
 				}
 				// Find RS associated with deployment
-				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, kcs.AppsV1())
+				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, w.c.AppsV1())
 				if err != nil || newReplicaSet == nil {
 					return false, err
 				}
-				newDeployment := deployment{
-					newReplicaSet,
-					currentDeployment,
+				if !w.deploymentReady(newReplicaSet, currentDeployment) {
+					return false, nil
 				}
-				deployments = append(deployments, newDeployment)
-			case *appsv1beta1.Deployment:
-				currentDeployment, err := kcs.AppsV1().Deployments(value.Namespace).Get(value.Name, metav1.GetOptions{})
+			case *corev1.PersistentVolumeClaim:
+				claim, err := w.c.CoreV1().PersistentVolumeClaims(v.Namespace).Get(v.Name, metav1.GetOptions{})
 				if err != nil {
 					return false, err
 				}
-				// Find RS associated with deployment
-				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, kcs.AppsV1())
-				if err != nil || newReplicaSet == nil {
-					return false, err
+				if !w.volumeReady(claim) {
+					return false, nil
 				}
-				newDeployment := deployment{
-					newReplicaSet,
-					currentDeployment,
-				}
-				deployments = append(deployments, newDeployment)
-			case *appsv1beta2.Deployment:
-				currentDeployment, err := kcs.AppsV1().Deployments(value.Namespace).Get(value.Name, metav1.GetOptions{})
+			case *corev1.Service:
+				svc, err := w.c.CoreV1().Services(v.Namespace).Get(v.Name, metav1.GetOptions{})
 				if err != nil {
 					return false, err
 				}
-				// Find RS associated with deployment
-				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, kcs.AppsV1())
-				if err != nil || newReplicaSet == nil {
-					return false, err
+				if !w.serviceReady(svc) {
+					return false, nil
 				}
-				newDeployment := deployment{
-					newReplicaSet,
-					currentDeployment,
-				}
-				deployments = append(deployments, newDeployment)
-			case *extensions.Deployment:
-				currentDeployment, err := kcs.AppsV1().Deployments(value.Namespace).Get(value.Name, metav1.GetOptions{})
+			case *extensionsv1beta1.DaemonSet, *appsv1.DaemonSet, *appsv1beta2.DaemonSet:
+				ds, err := w.c.AppsV1().DaemonSets(v.Namespace).Get(v.Name, metav1.GetOptions{})
 				if err != nil {
 					return false, err
 				}
-				// Find RS associated with deployment
-				newReplicaSet, err := deploymentutil.GetNewReplicaSet(currentDeployment, kcs.AppsV1())
-				if err != nil || newReplicaSet == nil {
+				if !w.daemonSetReady(ds) {
+					return false, nil
+				}
+			case *apiextv1beta1.CustomResourceDefinition:
+				if err := v.Get(); err != nil {
 					return false, err
 				}
-				newDeployment := deployment{
-					newReplicaSet,
-					currentDeployment,
+				crd := &apiextv1beta1.CustomResourceDefinition{}
+				if err := scheme.Scheme.Convert(v.Object, crd, nil); err != nil {
+					return false, err
 				}
-				deployments = append(deployments, newDeployment)
-			case *extensions.DaemonSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
+				if !w.crdReady(*crd) {
+					return false, nil
+				}
+			case *appsv1.StatefulSet, *appsv1beta1.StatefulSet, *appsv1beta2.StatefulSet:
+				sts, err := w.c.AppsV1().StatefulSets(v.Namespace).Get(v.Name, metav1.GetOptions{})
 				if err != nil {
 					return false, err
 				}
-				pods = append(pods, list...)
-			case *appsv1.DaemonSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
-				if err != nil {
-					return false, err
+				if !w.statefulSetReady(sts) {
+					return false, nil
 				}
-				pods = append(pods, list...)
-			case *appsv1beta2.DaemonSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
-				if err != nil {
-					return false, err
-				}
-				pods = append(pods, list...)
-			case *appsv1.StatefulSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
-				if err != nil {
-					return false, err
-				}
-				pods = append(pods, list...)
-			case *appsv1beta1.StatefulSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
-				if err != nil {
-					return false, err
-				}
-				pods = append(pods, list...)
-			case *appsv1beta2.StatefulSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
-				if err != nil {
-					return false, err
-				}
-				pods = append(pods, list...)
-			case *extensions.ReplicaSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
-				if err != nil {
-					return false, err
-				}
-				pods = append(pods, list...)
-			case *appsv1beta2.ReplicaSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
-				if err != nil {
-					return false, err
-				}
-				pods = append(pods, list...)
-			case *appsv1.ReplicaSet:
-				list, err := getPods(kcs, value.Namespace, value.Spec.Selector.MatchLabels)
-				if err != nil {
-					return false, err
-				}
-				pods = append(pods, list...)
-			case *v1.PersistentVolumeClaim:
-				claim, err := kcs.CoreV1().PersistentVolumeClaims(value.Namespace).Get(value.Name, metav1.GetOptions{})
-				if err != nil {
-					return false, err
-				}
-				pvc = append(pvc, *claim)
-			case *v1.Service:
-				svc, err := kcs.CoreV1().Services(value.Namespace).Get(value.Name, metav1.GetOptions{})
-				if err != nil {
-					return false, err
-				}
-				services = append(services, *svc)
+			case *corev1.ReplicationController, *extensionsv1beta1.ReplicaSet, *appsv1beta2.ReplicaSet, *appsv1.ReplicaSet:
+				ok, err = w.podsReadyForObject(v.Namespace, value)
+			}
+			if !ok || err != nil {
+				return false, err
 			}
 		}
-		isReady := c.podsReady(pods) && c.servicesReady(services) && c.volumesReady(pvc) && c.deploymentsReady(deployments)
-		return isReady, nil
+		return true, nil
 	})
 }
 
-func (c *Client) podsReady(pods []v1.Pod) bool {
+func (w *waiter) podsReadyForObject(namespace string, obj runtime.Object) (bool, error) {
+	pods, err := w.podsforObject(namespace, obj)
+	if err != nil {
+		return false, err
+	}
 	for _, pod := range pods {
-		if !isPodReady(&pod) {
-			c.Log("Pod is not ready: %s/%s", pod.GetNamespace(), pod.GetName())
-			return false
+		if !w.isPodReady(&pod) {
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
-func (c *Client) servicesReady(svc []v1.Service) bool {
-	for _, s := range svc {
-		// ExternalName Services are external to cluster so helm shouldn't be checking to see if they're 'ready' (i.e. have an IP Set)
-		if s.Spec.Type == v1.ServiceTypeExternalName {
-			continue
-		}
+func (w *waiter) podsforObject(namespace string, obj runtime.Object) ([]corev1.Pod, error) {
+	selector, err := SelectorsForObject(obj)
+	if err != nil {
+		return nil, err
+	}
+	list, err := getPods(w.c, namespace, selector.String())
+	return list, err
+}
 
-		// Make sure the service is not explicitly set to "None" before checking the IP
-		if s.Spec.ClusterIP != v1.ClusterIPNone && s.Spec.ClusterIP == "" {
-			c.Log("Service is not ready: %s/%s", s.GetNamespace(), s.GetName())
-			return false
+// isPodReady returns true if a pod is ready; false otherwise.
+func (w *waiter) isPodReady(pod *corev1.Pod) bool {
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
+			return true
 		}
+	}
+	w.log("Pod is not ready: %s/%s", pod.GetNamespace(), pod.GetName())
+	return false
+}
+
+func (w *waiter) serviceReady(s *corev1.Service) bool {
+	// ExternalName Services are external to cluster so helm shouldn't be checking to see if they're 'ready' (i.e. have an IP Set)
+	if s.Spec.Type == corev1.ServiceTypeExternalName {
+		return true
+	}
+
+	// Make sure the service is not explicitly set to "None" before checking the IP
+	if (s.Spec.ClusterIP != corev1.ClusterIPNone && s.Spec.ClusterIP == "") ||
 		// This checks if the service has a LoadBalancer and that balancer has an Ingress defined
-		if s.Spec.Type == v1.ServiceTypeLoadBalancer && s.Status.LoadBalancer.Ingress == nil {
-			c.Log("Service is not ready: %s/%s", s.GetNamespace(), s.GetName())
-			return false
-		}
+		(s.Spec.Type == corev1.ServiceTypeLoadBalancer && s.Status.LoadBalancer.Ingress == nil) {
+		w.log("Service does not have IP address: %s/%s", s.GetNamespace(), s.GetName())
+		return false
 	}
 	return true
 }
 
-func (c *Client) volumesReady(vols []v1.PersistentVolumeClaim) bool {
-	for _, v := range vols {
-		if v.Status.Phase != v1.ClaimBound {
-			c.Log("PersistentVolumeClaim is not ready: %s/%s", v.GetNamespace(), v.GetName())
-			return false
-		}
+func (w *waiter) volumeReady(v *corev1.PersistentVolumeClaim) bool {
+	if v.Status.Phase != corev1.ClaimBound {
+		w.log("PersistentVolumeClaim is not bound: %s/%s", v.GetNamespace(), v.GetName())
+		return false
 	}
 	return true
 }
 
-func (c *Client) deploymentsReady(deployments []deployment) bool {
-	for _, v := range deployments {
-		if !(v.replicaSets.Status.ReadyReplicas >= *v.deployment.Spec.Replicas-deploymentutil.MaxUnavailable(*v.deployment)) {
-			c.Log("Deployment is not ready: %s/%s", v.deployment.GetNamespace(), v.deployment.GetName())
-			return false
-		}
+func (w *waiter) deploymentReady(rs *appsv1.ReplicaSet, dep *appsv1.Deployment) bool {
+	expectedReady := *dep.Spec.Replicas - deploymentutil.MaxUnavailable(*dep)
+	if !(rs.Status.ReadyReplicas >= expectedReady) {
+		w.log("Deployment is not ready: %s/%s. %d out of %d expected pods are ready", dep.Namespace, dep.Name, rs.Status.ReadyReplicas, expectedReady)
+		return false
 	}
 	return true
 }
 
-func getPods(client kubernetes.Interface, namespace string, selector map[string]string) ([]v1.Pod, error) {
-	list, err := client.CoreV1().Pods(namespace).List(metav1.ListOptions{
-		FieldSelector: fields.Everything().String(),
-		LabelSelector: labels.Set(selector).AsSelector().String(),
-	})
-	return list.Items, err
+func (w *waiter) daemonSetReady(ds *appsv1.DaemonSet) bool {
+	// If the update strategy is not a rolling update, there will be nothing to wait for
+	if ds.Spec.UpdateStrategy.Type != appsv1.RollingUpdateDaemonSetStrategyType {
+		return true
+	}
+
+	// Make sure all the updated pods have been scheduled
+	if ds.Status.UpdatedNumberScheduled != ds.Status.DesiredNumberScheduled {
+		w.log("DaemonSet is not ready: %s/%s. %d out of %d expected pods have been scheduled", ds.Namespace, ds.Name, ds.Status.UpdatedNumberScheduled, ds.Status.DesiredNumberScheduled)
+		return false
+	}
+	maxUnavailable, err := intstr.GetValueFromIntOrPercent(ds.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable, int(ds.Status.DesiredNumberScheduled), true)
+	if err != nil {
+		// If for some reason the value is invalid, set max unavailable to the
+		// number of desired replicas. This is the same behavior as the
+		// `MaxUnavailable` function in deploymentutil
+		maxUnavailable = int(ds.Status.DesiredNumberScheduled)
+	}
+
+	expectedReady := int(ds.Status.DesiredNumberScheduled) - maxUnavailable
+	if !(int(ds.Status.NumberReady) >= expectedReady) {
+		w.log("DaemonSet is not ready: %s/%s. %d out of %d expected pods are ready", ds.Namespace, ds.Name, ds.Status.NumberReady, expectedReady)
+		return false
+	}
+	return true
 }
 
-func isPodReady(pod *v1.Pod) bool {
-	if &pod.Status != nil && len(pod.Status.Conditions) > 0 {
-		for _, condition := range pod.Status.Conditions {
-			if condition.Type == v1.PodReady &&
-				condition.Status == v1.ConditionTrue {
+func (w *waiter) crdReady(crd apiextv1beta1.CustomResourceDefinition) bool {
+	for _, cond := range crd.Status.Conditions {
+		switch cond.Type {
+		case apiextv1beta1.Established:
+			if cond.Status == apiextv1beta1.ConditionTrue {
+				return true
+			}
+		case apiextv1beta1.NamesAccepted:
+			if cond.Status == apiextv1beta1.ConditionFalse {
+				// This indicates a naming conflict, but it's probably not the
+				// job of this function to fail because of that. Instead,
+				// we treat it as a success, since the process should be able to
+				// continue.
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func (w *waiter) statefulSetReady(sts *appsv1.StatefulSet) bool {
+	// If the update strategy is not a rolling update, there will be nothing to wait for
+	if sts.Spec.UpdateStrategy.Type != appsv1.RollingUpdateStatefulSetStrategyType {
+		return true
+	}
+
+	// Dereference all the pointers because StatefulSets like them
+	var partition int
+	// 1 is the default for replicas if not set
+	var replicas = 1
+	// For some reason, even if the update strategy is a rolling update, the
+	// actual rollingUpdate field can be nil. If it is, we can safely assume
+	// there is no partition value
+	if sts.Spec.UpdateStrategy.RollingUpdate != nil && sts.Spec.UpdateStrategy.RollingUpdate.Partition != nil {
+		partition = int(*sts.Spec.UpdateStrategy.RollingUpdate.Partition)
+	}
+	if sts.Spec.Replicas != nil {
+		replicas = int(*sts.Spec.Replicas)
+	}
+
+	// Because an update strategy can use partitioning, we need to calculate the
+	// number of updated replicas we should have. For example, if the replicas
+	// is set to 3 and the partition is 2, we'd expect only one pod to be
+	// updated
+	expectedReplicas := replicas - partition
+
+	// Make sure all the updated pods have been scheduled
+	if int(sts.Status.UpdatedReplicas) != expectedReplicas {
+		w.log("StatefulSet is not ready: %s/%s. %d out of %d expected pods have been scheduled", sts.Namespace, sts.Name, sts.Status.UpdatedReplicas, expectedReplicas)
+		return false
+	}
+
+	if int(sts.Status.ReadyReplicas) != replicas {
+		w.log("StatefulSet is not ready: %s/%s. %d out of %d expected pods are ready", sts.Namespace, sts.Name, sts.Status.ReadyReplicas, replicas)
+		return false
+	}
+	return true
+}
+
+func getPods(client kubernetes.Interface, namespace, selector string) ([]corev1.Pod, error) {
+	list, err := client.CoreV1().Pods(namespace).List(metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	return list.Items, err
+}
+
+// SelectorsForObject returns the pod label selector for a given object
+//
+// Modified version of https://github.com/kubernetes/kubernetes/blob/v1.14.1/pkg/kubectl/polymorphichelpers/helpers.go#L84
+func SelectorsForObject(object runtime.Object) (selector labels.Selector, err error) {
+	switch t := object.(type) {
+	case *extensionsv1beta1.ReplicaSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1.ReplicaSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1beta2.ReplicaSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *corev1.ReplicationController:
+		selector = labels.SelectorFromSet(t.Spec.Selector)
+	case *appsv1.StatefulSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1beta1.StatefulSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1beta2.StatefulSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *extensionsv1beta1.DaemonSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1.DaemonSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1beta2.DaemonSet:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *extensionsv1beta1.Deployment:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1.Deployment:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1beta1.Deployment:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *appsv1beta2.Deployment:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *batchv1.Job:
+		selector, err = metav1.LabelSelectorAsSelector(t.Spec.Selector)
+	case *corev1.Service:
+		if t.Spec.Selector == nil || len(t.Spec.Selector) == 0 {
+			return nil, fmt.Errorf("invalid service '%s': Service is defined without a selector", t.Name)
+		}
+		selector = labels.SelectorFromSet(t.Spec.Selector)
+
+	default:
+		return nil, fmt.Errorf("selector for %T not implemented", object)
+	}
+
+	return selector, errors.Wrap(err, "invalid label selector")
 }

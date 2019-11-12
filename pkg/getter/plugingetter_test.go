@@ -16,35 +16,17 @@ limitations under the License.
 package getter
 
 import (
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
-	"k8s.io/helm/pkg/helm/environment"
-	"k8s.io/helm/pkg/helm/helmpath"
+	"helm.sh/helm/v3/pkg/cli"
 )
 
-func hh(debug bool) environment.EnvSettings {
-	apath, err := filepath.Abs("./testdata")
-	if err != nil {
-		panic(err)
-	}
-	hp := helmpath.Home(apath)
-	return environment.EnvSettings{
-		Home:  hp,
-		Debug: debug,
-	}
-}
-
 func TestCollectPlugins(t *testing.T) {
-	// Reset HELM HOME to testdata.
-	oldhh := os.Getenv("HELM_HOME")
-	defer os.Setenv("HELM_HOME", oldhh)
-	os.Setenv("HELM_HOME", "")
-
-	env := hh(false)
+	env := &cli.EnvSettings{
+		PluginsDirectory: pluginDir,
+	}
 	p, err := collectPlugins(env)
 	if err != nil {
 		t.Fatal(err)
@@ -72,13 +54,11 @@ func TestPluginGetter(t *testing.T) {
 		t.Skip("TODO: refactor this test to work on windows")
 	}
 
-	oldhh := os.Getenv("HELM_HOME")
-	defer os.Setenv("HELM_HOME", oldhh)
-	os.Setenv("HELM_HOME", "")
-
-	env := hh(false)
-	pg := newPluginGetter("echo", env, "test", ".")
-	g, err := pg("test://foo/bar", "", "", "")
+	env := &cli.EnvSettings{
+		PluginsDirectory: pluginDir,
+	}
+	pg := NewPluginGetter("echo", env, "test", ".")
+	g, err := pg()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,18 +74,17 @@ func TestPluginGetter(t *testing.T) {
 		t.Errorf("Expected %q, got %q", expect, got)
 	}
 }
+
 func TestPluginSubCommands(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("TODO: refactor this test to work on windows")
 	}
 
-	oldhh := os.Getenv("HELM_HOME")
-	defer os.Setenv("HELM_HOME", oldhh)
-	os.Setenv("HELM_HOME", "")
-
-	env := hh(false)
-	pg := newPluginGetter("echo -n", env, "test", ".")
-	g, err := pg("test://foo/bar", "", "", "")
+	env := &cli.EnvSettings{
+		PluginsDirectory: pluginDir,
+	}
+	pg := NewPluginGetter("echo -n", env, "test", ".")
+	g, err := pg()
 	if err != nil {
 		t.Fatal(err)
 	}

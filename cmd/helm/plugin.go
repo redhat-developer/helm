@@ -16,14 +16,14 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 
-	"k8s.io/helm/pkg/plugin"
-
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+
+	"helm.sh/helm/v3/pkg/plugin"
 )
 
 const pluginHelp = `
@@ -33,13 +33,13 @@ Manage client-side Helm plugins.
 func newPluginCmd(out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plugin",
-		Short: "Add, list, or remove Helm plugins",
+		Short: "install, list, or uninstall Helm plugins",
 		Long:  pluginHelp,
 	}
 	cmd.AddCommand(
 		newPluginInstallCmd(out),
 		newPluginListCmd(out),
-		newPluginRemoveCmd(out),
+		newPluginUninstallCmd(out),
 		newPluginUpdateCmd(out),
 	)
 	return cmd
@@ -47,7 +47,7 @@ func newPluginCmd(out io.Writer) *cobra.Command {
 
 // runHook will execute a plugin hook.
 func runHook(p *plugin.Plugin, event string) error {
-	hook := p.Metadata.Hooks.Get(event)
+	hook := p.Metadata.Hooks[event]
 	if hook == "" {
 		return nil
 	}
@@ -64,7 +64,7 @@ func runHook(p *plugin.Plugin, event string) error {
 	if err := prog.Run(); err != nil {
 		if eerr, ok := err.(*exec.ExitError); ok {
 			os.Stderr.Write(eerr.Stderr)
-			return fmt.Errorf("plugin %s hook for %q exited with error", event, p.Metadata.Name)
+			return errors.Errorf("plugin %s hook for %q exited with error", event, p.Metadata.Name)
 		}
 		return err
 	}

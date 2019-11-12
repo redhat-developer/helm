@@ -16,69 +16,53 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/provenance"
-	"k8s.io/helm/pkg/repo"
-	"k8s.io/helm/pkg/repo/repotest"
+	"helm.sh/helm/v3/pkg/provenance"
+	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/repo/repotest"
 )
 
 func TestDependencyBuildCmd(t *testing.T) {
-	hh, err := tempHelmHome(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cleanup := resetEnv()
-	defer func() {
-		os.RemoveAll(hh.String())
-		cleanup()
-	}()
-
-	settings.Home = hh
-
-	srv := repotest.NewServer(hh.String())
+	srv, err := repotest.NewTempServer("testdata/testcharts/*.tgz")
 	defer srv.Stop()
-	_, err = srv.CopyCharts("testdata/testcharts/*.tgz")
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	rootDir := srv.Root()
+	srv.LinkIndices()
 
 	chartname := "depbuild"
-	if err := createTestingChart(hh.String(), chartname, srv.URL()); err != nil {
-		t.Fatal(err)
-	}
+	createTestingChart(t, rootDir, chartname, srv.URL())
+	repoFile := filepath.Join(rootDir, "repositories.yaml")
 
-	out := bytes.NewBuffer(nil)
-	dbc := &dependencyBuildCmd{out: out}
-	dbc.helmhome = helmpath.Home(hh)
-	dbc.chartpath = filepath.Join(hh.String(), chartname)
+	cmd := fmt.Sprintf("dependency build '%s' --repository-config %s --repository-cache %s", filepath.Join(rootDir, chartname), repoFile, rootDir)
+	_, out, err := executeActionCommand(cmd)
 
 	// In the first pass, we basically want the same results as an update.
-	if err := dbc.run(); err != nil {
-		output := out.String()
-		t.Logf("Output: %s", output)
+	if err != nil {
+		t.Logf("Output: %s", out)
 		t.Fatal(err)
 	}
 
-	output := out.String()
-	if !strings.Contains(output, `update from the "test" chart repository`) {
-		t.Errorf("Repo did not get updated\n%s", output)
+	if !strings.Contains(out, `update from the "test" chart repository`) {
+		t.Errorf("Repo did not get updated\n%s", out)
 	}
 
 	// Make sure the actual file got downloaded.
-	expect := filepath.Join(hh.String(), chartname, "charts/reqtest-0.1.0.tgz")
+	expect := filepath.Join(rootDir, chartname, "charts/reqtest-0.1.0.tgz")
 	if _, err := os.Stat(expect); err != nil {
 		t.Fatal(err)
 	}
 
 	// In the second pass, we want to remove the chart's request dependency,
 	// then see if it restores from the lock.
-	lockfile := filepath.Join(hh.String(), chartname, "requirements.lock")
+	lockfile := filepath.Join(rootDir, chartname, "Chart.lock")
 	if _, err := os.Stat(lockfile); err != nil {
 		t.Fatal(err)
 	}
@@ -86,14 +70,13 @@ func TestDependencyBuildCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := dbc.run(); err != nil {
-		output := out.String()
-		t.Logf("Output: %s", output)
+	_, out, err = executeActionCommand(cmd)
+	if err != nil {
+		t.Logf("Output: %s", out)
 		t.Fatal(err)
 	}
 
 	// Now repeat the test that the dependency exists.
-	expect = filepath.Join(hh.String(), chartname, "charts/reqtest-0.1.0.tgz")
 	if _, err := os.Stat(expect); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +87,7 @@ func TestDependencyBuildCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	i, err := repo.LoadIndexFile(dbc.helmhome.CacheIndex("test"))
+	i, err := repo.LoadIndexFile(filepath.Join(rootDir, "index.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,5 +99,4 @@ func TestDependencyBuildCmd(t *testing.T) {
 	if v := reqver.Version; v != "0.1.0" {
 		t.Errorf("mismatched versions. Expected %q, got %q", "0.1.0", v)
 	}
-
 }

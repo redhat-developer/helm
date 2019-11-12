@@ -16,56 +16,30 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
-	"io"
-	"regexp"
 	"testing"
-
-	"github.com/spf13/cobra"
-
-	"k8s.io/helm/pkg/helm"
-	"k8s.io/helm/pkg/version"
 )
 
 func TestVersion(t *testing.T) {
-	lver := regexp.QuoteMeta(version.GetVersionProto().SemVer)
-	sver := regexp.QuoteMeta("1.2.3-fakeclient+testonly")
-	clientVersion := fmt.Sprintf("Client: &version\\.Version{SemVer:\"%s\", GitCommit:\"\", GitTreeState:\"\"}\n", lver)
-	serverVersion := fmt.Sprintf("Server: &version\\.Version{SemVer:\"%s\", GitCommit:\"\", GitTreeState:\"\"}\n", sver)
-
-	tests := []releaseCase{
-		{
-			name:     "default",
-			args:     []string{},
-			expected: clientVersion + serverVersion,
-		},
-		{
-			name:     "client",
-			args:     []string{},
-			flags:    []string{"-c"},
-			expected: clientVersion,
-		},
-		{
-			name:     "server",
-			args:     []string{},
-			flags:    []string{"-s"},
-			expected: serverVersion,
-		},
-		{
-			name:     "template",
-			args:     []string{},
-			flags:    []string{"--template", "{{ .Client.SemVer }} {{ .Server.SemVer }}"},
-			expected: lver + " " + sver,
-		},
-		{
-			name:     "client short empty git",
-			args:     []string{},
-			flags:    []string{"-c", "--short"},
-			expected: lver,
-		},
-	}
-	settings.TillerHost = "fake-localhost"
-	runReleaseCases(t, tests, func(c *helm.FakeClient, out io.Writer) *cobra.Command {
-		return newVersionCmd(c, out)
-	})
+	tests := []cmdTestCase{{
+		name:   "default",
+		cmd:    "version",
+		golden: "output/version.txt",
+	}, {
+		name:   "short",
+		cmd:    "version --short",
+		golden: "output/version-short.txt",
+	}, {
+		name:   "template",
+		cmd:    "version --template='Version: {{.Version}}'",
+		golden: "output/version-template.txt",
+	}, {
+		name:   "client",
+		cmd:    "version --client",
+		golden: "output/version-client.txt",
+	}, {
+		name:   "client shorthand",
+		cmd:    "version -c",
+		golden: "output/version-client-shorthand.txt",
+	}}
+	runTestCmd(t, tests)
 }

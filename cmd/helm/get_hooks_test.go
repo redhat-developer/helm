@@ -17,32 +17,22 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
-	"io"
 	"testing"
 
-	"github.com/spf13/cobra"
-
-	"k8s.io/helm/pkg/helm"
-	"k8s.io/helm/pkg/proto/hapi/release"
+	"helm.sh/helm/v3/pkg/release"
 )
 
 func TestGetHooks(t *testing.T) {
-	tests := []releaseCase{
-		{
-			name:     "get hooks with release",
-			args:     []string{"aeneas"},
-			expected: fmt.Sprintf("---\n# %s\n%s\n", "pre-install-hook", helm.MockHookTemplate),
-			resp:     helm.ReleaseMock(&helm.MockReleaseOptions{Name: "aeneas"}),
-			rels:     []*release.Release{helm.ReleaseMock(&helm.MockReleaseOptions{Name: "aeneas"})},
-		},
-		{
-			name: "get hooks without args",
-			args: []string{},
-			err:  true,
-		},
-	}
-	runReleaseCases(t, tests, func(c *helm.FakeClient, out io.Writer) *cobra.Command {
-		return newGetHooksCmd(c, out)
-	})
+	tests := []cmdTestCase{{
+		name:   "get hooks with release",
+		cmd:    "get hooks aeneas",
+		golden: "output/get-hooks.txt",
+		rels:   []*release.Release{release.Mock(&release.MockReleaseOptions{Name: "aeneas"})},
+	}, {
+		name:      "get hooks without args",
+		cmd:       "get hooks",
+		golden:    "output/get-hooks-no-args.txt",
+		wantError: true,
+	}}
+	runTestCmd(t, tests)
 }

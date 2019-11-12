@@ -14,16 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package driver // import "k8s.io/helm/pkg/storage/driver"
+package driver // import "helm.sh/helm/v3/pkg/storage/driver"
 
 import (
 	"sort"
 	"strconv"
 
-	"github.com/golang/protobuf/proto"
-
-	rspb "k8s.io/helm/pkg/proto/hapi/release"
-	storageerrors "k8s.io/helm/pkg/storage/errors"
+	rspb "helm.sh/helm/v3/pkg/release"
 )
 
 // records holds a list of in-memory release records
@@ -39,7 +36,7 @@ func (rs *records) Add(r *record) error {
 	}
 
 	if rs.Exists(r.key) {
-		return storageerrors.ErrReleaseExists(r.key)
+		return ErrReleaseExists
 	}
 
 	*rs = append(*rs, r)
@@ -96,16 +93,6 @@ func (rs *records) Replace(key string, rec *record) *record {
 	return nil
 }
 
-func (rs records) FindByVersion(vers int32) (int, bool) {
-	i := sort.Search(len(rs), func(i int) bool {
-		return rs[i].rls.Version == vers
-	})
-	if i < len(rs) && rs[i].rls.Version == vers {
-		return i, true
-	}
-	return i, false
-}
-
 func (rs *records) removeAt(index int) *record {
 	r := (*rs)[index]
 	(*rs)[index] = nil
@@ -127,10 +114,11 @@ func newRecord(key string, rls *rspb.Release) *record {
 	var lbs labels
 
 	lbs.init()
-	lbs.set("NAME", rls.Name)
-	lbs.set("OWNER", "TILLER")
-	lbs.set("STATUS", rspb.Status_Code_name[int32(rls.Info.Status.Code)])
-	lbs.set("VERSION", strconv.Itoa(int(rls.Version)))
+	lbs.set("name", rls.Name)
+	lbs.set("owner", "helm")
+	lbs.set("status", rls.Info.Status.String())
+	lbs.set("version", strconv.Itoa(rls.Version))
 
-	return &record{key: key, lbs: lbs, rls: proto.Clone(rls).(*rspb.Release)}
+	// return &record{key: key, lbs: lbs, rls: proto.Clone(rls).(*rspb.Release)}
+	return &record{key: key, lbs: lbs, rls: rls}
 }

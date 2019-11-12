@@ -20,123 +20,74 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"syscall"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh/terminal"
-
 	"github.com/gofrs/flock"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v2"
 
-	"k8s.io/helm/pkg/getter"
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/repo"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/repo"
 )
 
-type repoAddCmd struct {
+type repoAddOptions struct {
 	name     string
 	url      string
 	username string
 	password string
-	home     helmpath.Home
-	noupdate bool
+	noUpdate bool
 
 	certFile string
 	keyFile  string
 	caFile   string
 
-	out io.Writer
+	repoFile  string
+	repoCache string
 }
 
 func newRepoAddCmd(out io.Writer) *cobra.Command {
-	add := &repoAddCmd{out: out}
+	o := &repoAddOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "add [flags] [NAME] [URL]",
-		Short: "Add a chart repository",
+		Use:   "add [NAME] [URL]",
+		Short: "add a chart repository",
+		Args:  require.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := checkArgsLength(len(args), "name for the chart repository", "the url of the chart repository"); err != nil {
-				return err
-			}
+			o.name = args[0]
+			o.url = args[1]
+			o.repoFile = settings.RepositoryConfig
+			o.repoCache = settings.RepositoryCache
 
-			add.name = args[0]
-			add.url = args[1]
-			add.home = settings.Home
-
-			return add.run()
+			return o.run(out)
 		},
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&add.username, "username", "", "Chart repository username")
-	f.StringVar(&add.password, "password", "", "Chart repository password")
-	f.BoolVar(&add.noupdate, "no-update", false, "Raise error if repo is already registered")
-	f.StringVar(&add.certFile, "cert-file", "", "Identify HTTPS client using this SSL certificate file")
-	f.StringVar(&add.keyFile, "key-file", "", "Identify HTTPS client using this SSL key file")
-	f.StringVar(&add.caFile, "ca-file", "", "Verify certificates of HTTPS-enabled servers using this CA bundle")
+	f.StringVar(&o.username, "username", "", "chart repository username")
+	f.StringVar(&o.password, "password", "", "chart repository password")
+	f.BoolVar(&o.noUpdate, "no-update", false, "raise error if repo is already registered")
+	f.StringVar(&o.certFile, "cert-file", "", "identify HTTPS client using this SSL certificate file")
+	f.StringVar(&o.keyFile, "key-file", "", "identify HTTPS client using this SSL key file")
+	f.StringVar(&o.caFile, "ca-file", "", "verify certificates of HTTPS-enabled servers using this CA bundle")
 
 	return cmd
 }
 
-func (a *repoAddCmd) run() error {
-	if a.username != "" && a.password == "" {
-		fmt.Fprint(a.out, "Password:")
-		password, err := readPassword()
-		fmt.Fprintln(a.out)
-		if err != nil {
-			return err
-		}
-		a.password = password
-	}
-
-	if err := addRepository(a.name, a.url, a.username, a.password, a.home, a.certFile, a.keyFile, a.caFile, a.noupdate); err != nil {
-		return err
-	}
-	fmt.Fprintf(a.out, "%q has been added to your repositories\n", a.name)
-	return nil
-}
-
-func readPassword() (string, error) {
-	password, err := terminal.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		return "", err
-	}
-	return string(password), nil
-}
-
-func addRepository(name, url, username, password string, home helmpath.Home, certFile, keyFile, caFile string, noUpdate bool) error {
-	f, err := repo.LoadRepositoriesFile(home.RepositoryFile())
-	if err != nil {
+func (o *repoAddOptions) run(out io.Writer) error {
+	//Ensure the file directory exists as it is required for file locking
+	err := os.MkdirAll(filepath.Dir(o.repoFile), os.ModePerm)
+	if err != nil && !os.IsExist(err) {
 		return err
 	}
 
-	if noUpdate && f.Has(name) {
-		return fmt.Errorf("repository name (%s) already exists, please specify a different name", name)
-	}
-
-	cif := home.CacheIndex(name)
-	c := repo.Entry{
-		Name:     name,
-		Cache:    cif,
-		URL:      url,
-		Username: username,
-		Password: password,
-		CertFile: certFile,
-		KeyFile:  keyFile,
-		CAFile:   caFile,
-	}
-
-	r, err := repo.NewChartRepository(&c, getter.All(settings))
-	if err != nil {
-		return err
-	}
-
-	if err := r.DownloadIndexFile(home.Cache()); err != nil {
-		return fmt.Errorf("Looks like %q is not a valid chart repository or cannot be reached: %s", url, err.Error())
-	}
-
-	// Lock the repository file for concurrent goroutines or processes synchronization
-	fileLock := flock.New(home.RepositoryFile())
+	// Acquire a file lock for process synchronization
+	fileLock := flock.New(strings.Replace(o.repoFile, filepath.Ext(o.repoFile), ".lock", 1))
 	lockCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	locked, err := fileLock.TryLockContext(lockCtx, time.Second)
@@ -147,14 +98,44 @@ func addRepository(name, url, username, password string, home helmpath.Home, cer
 		return err
 	}
 
-	// Re-read the repositories file before updating it as its content may have been changed
-	// by a concurrent execution after the first read and before being locked
-	f, err = repo.LoadRepositoriesFile(home.RepositoryFile())
+	b, err := ioutil.ReadFile(o.repoFile)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	var f repo.File
+	if err := yaml.Unmarshal(b, &f); err != nil {
+		return err
+	}
+
+	if o.noUpdate && f.Has(o.name) {
+		return errors.Errorf("repository name (%s) already exists, please specify a different name", o.name)
+	}
+
+	c := repo.Entry{
+		Name:     o.name,
+		URL:      o.url,
+		Username: o.username,
+		Password: o.password,
+		CertFile: o.certFile,
+		KeyFile:  o.keyFile,
+		CAFile:   o.caFile,
+	}
+
+	r, err := repo.NewChartRepository(&c, getter.All(settings))
 	if err != nil {
 		return err
 	}
 
+	if _, err := r.DownloadIndexFile(); err != nil {
+		return errors.Wrapf(err, "looks like %q is not a valid chart repository or cannot be reached", o.url)
+	}
+
 	f.Update(&c)
 
-	return f.WriteFile(home.RepositoryFile(), 0644)
+	if err := f.WriteFile(o.repoFile, 0644); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%q has been added to your repositories\n", o.name)
+	return nil
 }

@@ -2,15 +2,15 @@
 
 [![CircleCI](https://circleci.com/gh/helm/helm.svg?style=shield)](https://circleci.com/gh/helm/helm)
 [![Go Report Card](https://goreportcard.com/badge/github.com/helm/helm)](https://goreportcard.com/report/github.com/helm/helm)
-[![GoDoc](https://godoc.org/k8s.io/helm?status.svg)](https://godoc.org/k8s.io/helm)
+[![GoDoc](https://godoc.org/helm.sh/helm?status.svg)](https://godoc.org/helm.sh/helm)
+[![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/3131/badge)](https://bestpractices.coreinfrastructure.org/projects/3131)
 
-Helm is a tool for managing Kubernetes charts. Charts are packages of
-pre-configured Kubernetes resources.
+Helm is a tool for managing Charts. Charts are packages of pre-configured Kubernetes resources.
 
 Use Helm to:
 
-- Find and use [popular software packaged as Helm charts](https://github.com/helm/charts) to run in Kubernetes
-- Share your own applications as Helm charts
+- Find and use [popular software packaged as Helm Charts](https://github.com/helm/charts) to run in Kubernetes
+- Share your own applications as Helm Charts
 - Create reproducible builds of your Kubernetes applications
 - Intelligently manage your Kubernetes manifest files
 - Manage releases of Helm packages
@@ -20,9 +20,7 @@ Use Helm to:
 Helm is a tool that streamlines installing and managing Kubernetes applications.
 Think of it like apt/yum/homebrew for Kubernetes.
 
-- Helm has two parts: a client (`helm`) and a server (`tiller`)
-- Tiller runs inside of your Kubernetes cluster, and manages releases (installations)
-  of your charts.
+- Helm renders your templates and communicates with the Kubernetes API
 - Helm runs on your laptop, CI/CD, or wherever you want it to run.
 - Charts are Helm packages that contain at least two things:
   - A description of the package (`Chart.yaml`)
@@ -43,8 +41,6 @@ If you want to use a package manager:
 - [Chocolatey](https://chocolatey.org/) users can use `choco install kubernetes-helm`.
 - [Scoop](https://scoop.sh/) users can use `scoop install helm`.
 - [GoFish](https://gofi.sh/) users can use `gofish install helm`.
-- [Snap](https://snapcraft.io/) users can use `sudo snap install helm
-  --classic`.
 
 To rapidly get Helm up and running, start with the [Quick Start Guide](https://docs.helm.sh/using_helm/#quickstart-guide).
 

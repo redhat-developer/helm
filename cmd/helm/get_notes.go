@@ -22,61 +22,36 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/helm"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/action"
 )
 
 var getNotesHelp = `
 This command shows notes provided by the chart of a named release.
 `
 
-type getNotesCmd struct {
-	release string
-	out     io.Writer
-	client  helm.Interface
-	version int32
-}
-
-func newGetNotesCmd(client helm.Interface, out io.Writer) *cobra.Command {
-	get := &getNotesCmd{
-		out:    out,
-		client: client,
-	}
+func newGetNotesCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	client := action.NewGet(cfg)
 
 	cmd := &cobra.Command{
-		Use:     "notes [flags] RELEASE_NAME",
-		Short:   "Displays the notes of the named release",
-		Long:    getNotesHelp,
-		PreRunE: func(_ *cobra.Command, _ []string) error { return setupConnection() },
+		Use:   "notes RELEASE_NAME",
+		Short: "download the notes for a named release",
+		Long:  getNotesHelp,
+		Args:  require.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return errReleaseRequired
+			res, err := client.Run(args[0])
+			if err != nil {
+				return err
 			}
-			get.release = args[0]
-			if get.client == nil {
-				get.client = newClient()
+			if len(res.Info.Notes) > 0 {
+				fmt.Fprintf(out, "NOTES:\n%s\n", res.Info.Notes)
 			}
-			return get.run()
+			return nil
 		},
 	}
 
 	f := cmd.Flags()
-	settings.AddFlagsTLS(f)
-	f.Int32Var(&get.version, "revision", 0, "Get the notes of the named release with revision")
-
-	// set defaults from environment
-	settings.InitTLS(f)
+	f.IntVar(&client.Version, "revision", 0, "get the named release with revision")
 
 	return cmd
-}
-
-func (n *getNotesCmd) run() error {
-	res, err := n.client.ReleaseStatus(n.release, helm.StatusReleaseVersion(n.version))
-	if err != nil {
-		return prettyError(err)
-	}
-
-	if len(res.Info.Status.Notes) > 0 {
-		fmt.Fprintf(n.out, "NOTES:\n%s\n", res.Info.Status.Notes)
-	}
-	return nil
 }

@@ -16,14 +16,12 @@ limitations under the License.
 package installer
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
-	"k8s.io/helm/pkg/helm/helmpath"
+	"github.com/pkg/errors"
 )
 
 // ErrMissingMetadata indicates that plugin.yaml is missing.
@@ -34,50 +32,47 @@ var Debug bool
 
 // Installer provides an interface for installing helm client plugins.
 type Installer interface {
-	// Install adds a plugin to $HELM_HOME.
+	// Install adds a plugin.
 	Install() error
 	// Path is the directory of the installed plugin.
 	Path() string
-	// Update updates a plugin to $HELM_HOME.
+	// Update updates a plugin.
 	Update() error
 }
 
-// Install installs a plugin to $HELM_HOME.
+// Install installs a plugin.
 func Install(i Installer) error {
-	if _, pathErr := os.Stat(path.Dir(i.Path())); os.IsNotExist(pathErr) {
-		return errors.New(`plugin home "$HELM_HOME/plugins" does not exist`)
+	if err := os.MkdirAll(filepath.Dir(i.Path()), 0755); err != nil {
+		return err
 	}
-
 	if _, pathErr := os.Stat(i.Path()); !os.IsNotExist(pathErr) {
 		return errors.New("plugin already exists")
 	}
-
 	return i.Install()
 }
 
-// Update updates a plugin in $HELM_HOME.
+// Update updates a plugin.
 func Update(i Installer) error {
 	if _, pathErr := os.Stat(i.Path()); os.IsNotExist(pathErr) {
 		return errors.New("plugin does not exist")
 	}
-
 	return i.Update()
 }
 
 // NewForSource determines the correct Installer for the given source.
-func NewForSource(source, version string, home helmpath.Home) (Installer, error) {
+func NewForSource(source, version string) (Installer, error) {
 	// Check if source is a local directory
 	if isLocalReference(source) {
-		return NewLocalInstaller(source, home)
+		return NewLocalInstaller(source)
 	} else if isRemoteHTTPArchive(source) {
-		return NewHTTPInstaller(source, home)
+		return NewHTTPInstaller(source)
 	}
-	return NewVCSInstaller(source, version, home)
+	return NewVCSInstaller(source, version)
 }
 
 // FindSource determines the correct Installer for the given source.
-func FindSource(location string, home helmpath.Home) (Installer, error) {
-	installer, err := existingVCSRepo(location, home)
+func FindSource(location string) (Installer, error) {
+	installer, err := existingVCSRepo(location)
 	if err != nil && err.Error() == "Cannot detect VCS" {
 		return installer, errors.New("cannot get information about plugin source")
 	}

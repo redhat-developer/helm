@@ -14,22 +14,42 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package releaseutil // import "k8s.io/helm/pkg/releaseutil"
+package releaseutil // import "helm.sh/helm/v3/pkg/releaseutil"
 
 import (
 	"sort"
 
-	rspb "k8s.io/helm/pkg/proto/hapi/release"
+	rspb "helm.sh/helm/v3/pkg/release"
 )
 
-type sorter struct {
-	list []*rspb.Release
-	less func(int, int) bool
+type list []*rspb.Release
+
+func (s list) Len() int      { return len(s) }
+func (s list) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+// ByName sorts releases by name
+type ByName struct{ list }
+
+// Less compares to releases
+func (s ByName) Less(i, j int) bool { return s.list[i].Name < s.list[j].Name }
+
+// ByDate sorts releases by date
+type ByDate struct{ list }
+
+// Less compares to releases
+func (s ByDate) Less(i, j int) bool {
+	ti := s.list[i].Info.LastDeployed.Unix()
+	tj := s.list[j].Info.LastDeployed.Unix()
+	return ti < tj
 }
 
-func (s *sorter) Len() int           { return len(s.list) }
-func (s *sorter) Less(i, j int) bool { return s.less(i, j) }
-func (s *sorter) Swap(i, j int)      { s.list[i], s.list[j] = s.list[j], s.list[i] }
+// ByRevision sorts releases by revision number
+type ByRevision struct{ list }
+
+// Less compares to releases
+func (s ByRevision) Less(i, j int) bool {
+	return s.list[i].Version < s.list[j].Version
+}
 
 // Reverse reverses the list of releases sorted by the sort func.
 func Reverse(list []*rspb.Release, sortFn func([]*rspb.Release)) {
@@ -42,59 +62,18 @@ func Reverse(list []*rspb.Release, sortFn func([]*rspb.Release)) {
 // SortByName returns the list of releases sorted
 // in lexicographical order.
 func SortByName(list []*rspb.Release) {
-	s := &sorter{list: list}
-	s.less = func(i, j int) bool {
-		ni := s.list[i].Name
-		nj := s.list[j].Name
-		return ni < nj
-	}
-	sort.Sort(s)
+	sort.Sort(ByName{list})
 }
 
 // SortByDate returns the list of releases sorted by a
 // release's last deployed time (in seconds).
 func SortByDate(list []*rspb.Release) {
-	s := &sorter{list: list}
-
-	s.less = func(i, j int) bool {
-		ti := s.list[i].Info.LastDeployed.Seconds
-		tj := s.list[j].Info.LastDeployed.Seconds
-		return ti < tj
-	}
-	sort.Sort(s)
+	sort.Sort(ByDate{list})
 }
 
 // SortByRevision returns the list of releases sorted by a
 // release's revision number (release.Version).
 func SortByRevision(list []*rspb.Release) {
-	s := &sorter{list: list}
-	s.less = func(i, j int) bool {
-		vi := s.list[i].Version
-		vj := s.list[j].Version
-		return vi < vj
-	}
-	sort.Sort(s)
+	sort.Sort(ByRevision{list})
 }
 
-// SortByChartName sorts the list of releases by a
-// release's chart name in lexicographical order.
-func SortByChartName(list []*rspb.Release) {
-	s := &sorter{list: list}
-	s.less = func(i, j int) bool {
-		chi := s.list[i].Chart
-		chj := s.list[j].Chart
-
-		ni := ""
-		if chi != nil && chi.Metadata != nil {
-			ni = chi.Metadata.Name
-		}
-
-		nj := ""
-		if chj != nil && chj.Metadata != nil {
-			nj = chj.Metadata.Name
-		}
-
-		return ni < nj
-	}
-	sort.Sort(s)
-}

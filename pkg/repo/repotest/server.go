@@ -22,10 +22,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ghodss/yaml"
+	"sigs.k8s.io/yaml"
 
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/repo"
+	"helm.sh/helm/v3/pkg/repo"
 )
 
 // NewTempServer creates a server inside of a temp dir.
@@ -35,22 +34,21 @@ import (
 //
 // The caller is responsible for destroying the temp directory as well as stopping
 // the server.
-func NewTempServer(glob string) (*Server, helmpath.Home, error) {
+func NewTempServer(glob string) (*Server, error) {
 	tdir, err := ioutil.TempDir("", "helm-repotest-")
-	tdirh := helmpath.Home(tdir)
 	if err != nil {
-		return nil, tdirh, err
+		return nil, err
 	}
 	srv := NewServer(tdir)
 
 	if glob != "" {
 		if _, err := srv.CopyCharts(glob); err != nil {
 			srv.Stop()
-			return srv, tdirh, err
+			return srv, err
 		}
 	}
 
-	return srv, tdirh, nil
+	return srv, nil
 }
 
 // NewServer creates a repository server for testing.
@@ -69,9 +67,9 @@ func NewServer(docroot string) *Server {
 	srv := &Server{
 		docroot: root,
 	}
-	srv.start()
+	srv.Start()
 	// Add the testing repository as the only repo.
-	if err := setTestingRepository(helmpath.Home(docroot), "test", srv.URL()); err != nil {
+	if err := setTestingRepository(srv.URL(), filepath.Join(root, "repositories.yaml")); err != nil {
 		panic(err)
 	}
 	return srv
@@ -79,8 +77,15 @@ func NewServer(docroot string) *Server {
 
 // Server is an implementation of a repository server for testing.
 type Server struct {
-	docroot string
-	srv     *httptest.Server
+	docroot    string
+	srv        *httptest.Server
+	middleware http.HandlerFunc
+}
+
+// WithMiddleware injects middleware in front of the server. This can be used to inject
+// additional functionality like layering in an authentication frontend.
+func (s *Server) WithMiddleware(middleware http.HandlerFunc) {
+	s.middleware = middleware
 }
 
 // Root gets the docroot for the server.
@@ -102,7 +107,7 @@ func (s *Server) CopyCharts(origin string) ([]string, error) {
 		if err != nil {
 			return []string{}, err
 		}
-		if err := ioutil.WriteFile(newname, data, 0755); err != nil {
+		if err := ioutil.WriteFile(newname, data, 0644); err != nil {
 			return []string{}, err
 		}
 		copied[i] = newname
@@ -126,11 +131,16 @@ func (s *Server) CreateIndex() error {
 	}
 
 	ifile := filepath.Join(s.docroot, "index.yaml")
-	return ioutil.WriteFile(ifile, d, 0755)
+	return ioutil.WriteFile(ifile, d, 0644)
 }
 
-func (s *Server) start() {
-	s.srv = httptest.NewServer(http.FileServer(http.Dir(s.docroot)))
+func (s *Server) Start() {
+	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.middleware != nil {
+			s.middleware.ServeHTTP(w, r)
+		}
+		http.FileServer(http.Dir(s.docroot)).ServeHTTP(w, r)
+	}))
 }
 
 // Stop stops the server and closes all connections.
@@ -148,25 +158,21 @@ func (s *Server) URL() string {
 	return s.srv.URL
 }
 
-// LinkIndices links the index created with CreateIndex and makes a symbolic link to the repositories/cache directory.
+// LinkIndices links the index created with CreateIndex and makes a symbolic link to the cache index.
 //
 // This makes it possible to simulate a local cache of a repository.
 func (s *Server) LinkIndices() error {
-	destfile := "test-index.yaml"
-	// Link the index.yaml file to the
 	lstart := filepath.Join(s.docroot, "index.yaml")
-	ldest := filepath.Join(s.docroot, "repository/cache", destfile)
+	ldest := filepath.Join(s.docroot, "test-index.yaml")
 	return os.Symlink(lstart, ldest)
 }
 
-// setTestingRepository sets up a testing repository.yaml with only the given name/URL.
-func setTestingRepository(home helmpath.Home, name, url string) error {
-	r := repo.NewRepoFile()
+// setTestingRepository sets up a testing repository.yaml with only the given URL.
+func setTestingRepository(url, fname string) error {
+	r := repo.NewFile()
 	r.Add(&repo.Entry{
-		Name:  name,
-		URL:   url,
-		Cache: home.CacheIndex(name),
+		Name: "test",
+		URL:  url,
 	})
-	os.MkdirAll(filepath.Join(home.Repository(), name), 0755)
-	return r.WriteFile(home.RepositoryFile(), 0644)
+	return r.WriteFile(fname, 0644)
 }

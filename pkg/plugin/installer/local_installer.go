@@ -13,13 +13,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package installer // import "k8s.io/helm/pkg/plugin/installer"
+package installer // import "helm.sh/helm/v3/pkg/plugin/installer"
 
 import (
-	"fmt"
 	"path/filepath"
 
-	"k8s.io/helm/pkg/helm/helmpath"
+	"github.com/pkg/errors"
 )
 
 // LocalInstaller installs plugins from the filesystem.
@@ -28,18 +27,18 @@ type LocalInstaller struct {
 }
 
 // NewLocalInstaller creates a new LocalInstaller.
-func NewLocalInstaller(source string, home helmpath.Home) (*LocalInstaller, error) {
+func NewLocalInstaller(source string) (*LocalInstaller, error) {
 	src, err := filepath.Abs(source)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get absolute path to plugin: %v", err)
+		return nil, errors.Wrap(err, "unable to get absolute path to plugin")
 	}
 	i := &LocalInstaller{
-		base: newBase(src, home),
+		base: newBase(src),
 	}
 	return i, nil
 }
 
-// Install creates a symlink to the plugin directory in $HELM_HOME.
+// Install creates a symlink to the plugin directory.
 //
 // Implements Installer.
 func (i *LocalInstaller) Install() error {

@@ -18,32 +18,29 @@ package repotest
 import (
 	"io/ioutil"
 	"net/http"
-	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/ghodss/yaml"
+	"sigs.k8s.io/yaml"
 
-	"k8s.io/helm/pkg/repo"
+	"helm.sh/helm/v3/internal/test/ensure"
+	"helm.sh/helm/v3/pkg/repo"
 )
 
 // Young'n, in these here parts, we test our tests.
 
 func TestServer(t *testing.T) {
-	docroot, err := ioutil.TempDir("", "helm-repotest-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(docroot)
+	defer ensure.HelmHome(t)()
 
-	srv := NewServer(docroot)
+	rootDir := ensure.TempDir(t)
+
+	srv := NewServer(rootDir)
 	defer srv.Stop()
 
 	c, err := srv.CopyCharts("testdata/*.tgz")
 	if err != nil {
 		// Some versions of Go don't correctly fire defer on Fatal.
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	if len(c) != 1 {
@@ -55,9 +52,9 @@ func TestServer(t *testing.T) {
 	}
 
 	res, err := http.Get(srv.URL() + "/examplechart-0.1.0.tgz")
+	res.Body.Close()
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	if res.ContentLength < 500 {
@@ -66,26 +63,22 @@ func TestServer(t *testing.T) {
 
 	res, err = http.Get(srv.URL() + "/index.yaml")
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	data, err := ioutil.ReadAll(res.Body)
 	res.Body.Close()
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	m := repo.NewIndexFile()
 	if err := yaml.Unmarshal(data, m); err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 
 	if l := len(m.Entries); l != 1 {
-		t.Errorf("Expected 1 entry, got %d", l)
-		return
+		t.Fatalf("Expected 1 entry, got %d", l)
 	}
 
 	expect := "examplechart"
@@ -94,30 +87,26 @@ func TestServer(t *testing.T) {
 	}
 
 	res, err = http.Get(srv.URL() + "/index.yaml-nosuchthing")
+	res.Body.Close()
 	if err != nil {
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 	if res.StatusCode != 404 {
-		t.Errorf("Expected 404, got %d", res.StatusCode)
+		t.Fatalf("Expected 404, got %d", res.StatusCode)
 	}
 }
 
 func TestNewTempServer(t *testing.T) {
-	srv, tdir, err := NewTempServer("testdata/examplechart-0.1.0.tgz")
+	defer ensure.HelmHome(t)()
+
+	srv, err := NewTempServer("testdata/examplechart-0.1.0.tgz")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		srv.Stop()
-		os.RemoveAll(tdir.String())
-	}()
-
-	if _, err := os.Stat(tdir.String()); err != nil {
-		t.Fatal(err)
-	}
+	defer srv.Stop()
 
 	res, err := http.Head(srv.URL() + "/examplechart-0.1.0.tgz")
+	res.Body.Close()
 	if err != nil {
 		t.Error(err)
 	}
