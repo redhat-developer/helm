@@ -18,7 +18,6 @@ package repo
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -28,13 +27,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Masterminds/semver"
-	"github.com/ghodss/yaml"
+	"github.com/Masterminds/semver/v3"
+	"github.com/pkg/errors"
+	"sigs.k8s.io/yaml"
 
-	"k8s.io/helm/pkg/chartutil"
-	"k8s.io/helm/pkg/proto/hapi/chart"
-	"k8s.io/helm/pkg/provenance"
-	"k8s.io/helm/pkg/urlutil"
+	"helm.sh/helm/v3/internal/urlutil"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/provenance"
 )
 
 var indexPath = "index.yaml"
@@ -147,7 +147,8 @@ func (i IndexFile) SortEntries() {
 
 // Get returns the ChartVersion for the given name.
 //
-// If version is empty, this will return the chart with the highest version.
+// If version is empty, this will return the chart with the latest stable version,
+// prerelease versions will be skipped.
 func (i IndexFile) Get(name, version string) (*ChartVersion, error) {
 	vs, ok := i.Entries[name]
 	if !ok {
@@ -158,7 +159,7 @@ func (i IndexFile) Get(name, version string) (*ChartVersion, error) {
 	}
 
 	var constraint *semver.Constraints
-	if len(version) == 0 {
+	if version == "" {
 		constraint, _ = semver.NewConstraint("*")
 	} else {
 		var err error
@@ -187,7 +188,7 @@ func (i IndexFile) Get(name, version string) (*ChartVersion, error) {
 			return ver, nil
 		}
 	}
-	return nil, fmt.Errorf("No chart version found for %s-%s", name, version)
+	return nil, errors.Errorf("no chart version found for %s-%s", name, version)
 }
 
 // WriteFile writes an index file to the given destination path.
@@ -219,8 +220,6 @@ func (i *IndexFile) Merge(f *IndexFile) {
 		}
 	}
 }
-
-// Need both JSON and YAML annotations until we get rid of gopkg.in/yaml.v2
 
 // ChartVersion represents a chart entry in the IndexFile
 type ChartVersion struct {
@@ -263,7 +262,7 @@ func IndexDirectory(dir, baseURL string) (*IndexFile, error) {
 			parentURL = path.Join(baseURL, parentDir)
 		}
 
-		c, err := chartutil.Load(arch)
+		c, err := loader.Load(arch)
 		if err != nil {
 			// Assume this is not a chart.
 			continue
@@ -287,10 +286,7 @@ func loadIndex(data []byte) (*IndexFile, error) {
 	}
 	i.SortEntries()
 	if i.APIVersion == "" {
-		// When we leave Beta, we should remove legacy support and just
-		// return this error:
-		//return i, ErrNoAPIVersion
-		return loadUnversionedIndex(data)
+		return i, ErrNoAPIVersion
 	}
 	return i, nil
 }

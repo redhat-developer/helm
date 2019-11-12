@@ -17,102 +17,87 @@ limitations under the License.
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/chartutil"
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/proto/hapi/chart"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chartutil"
+	"helm.sh/helm/v3/pkg/helmpath"
 )
 
 const createDesc = `
 This command creates a chart directory along with the common files and
-directories used in a chart. It provides a basic example and is not
-meant to cover all Kubernetes resources.
+directories used in a chart.
 
 For example, 'helm create foo' will create a directory structure that looks
 something like this:
 
-	foo/
-	  |
-	  |- .helmignore        # Contains patterns to ignore when packaging Helm charts.
-	  |
-	  |- Chart.yaml         # Information about your chart
-	  |
-	  |- values.yaml        # The default values for your templates
-	  |
-	  |- charts/            # Charts that this chart depends on
-	  |
-	  |- templates/         # The template files
-	  |
-	  |- templates/tests/   # The test files
+    foo/
+    ├── .helmignore   # Contains patterns to ignore when packaging Helm charts.
+    ├── Chart.yaml    # Information about your chart
+    ├── values.yaml   # The default values for your templates
+    ├── charts/       # Charts that this chart depends on
+    └── templates/    # The template files
+        └── tests/    # The test files
 
 'helm create' takes a path for an argument. If directories in the given path
 do not exist, Helm will attempt to create them as it goes. If the given
 destination exists and there are files in that directory, conflicting files
 will be overwritten, but other files will be left alone.
-
-The chart that is created by invoking this command contains a Deployment, Ingress
-and a Service. To use other Kubernetes resources with your chart, refer to
-[The Chart Template Developer's Guide](https://helm.sh/docs/chart_template_guide).
 `
 
-type createCmd struct {
-	home    helmpath.Home
-	name    string
-	out     io.Writer
-	starter string
+type createOptions struct {
+	starter    string // --starter
+	name       string
+	starterDir string
 }
 
 func newCreateCmd(out io.Writer) *cobra.Command {
-	cc := &createCmd{out: out}
+	o := &createOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "create NAME",
-		Short: "Create a new chart with the given name",
+		Short: "create a new chart with the given name",
 		Long:  createDesc,
+		Args:  require.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cc.home = settings.Home
-			if len(args) == 0 {
-				return errors.New("the name of the new chart is required")
-			}
-			if len(args) > 1 {
-				return errors.New("command 'create' doesn't support multiple arguments")
-			}
-			cc.name = args[0]
-			return cc.run()
+			o.name = args[0]
+			o.starterDir = helmpath.DataPath("starters")
+			return o.run(out)
 		},
 	}
 
-	cmd.Flags().StringVarP(&cc.starter, "starter", "p", "", "The name or absolute path to Helm starter scaffold")
+	cmd.Flags().StringVarP(&o.starter, "starter", "p", "", "The name or absolute path to Helm starter scaffold")
 	return cmd
 }
 
-func (c *createCmd) run() error {
-	fmt.Fprintf(c.out, "Creating %s\n", c.name)
-	chartname := filepath.Base(c.name)
+func (o *createOptions) run(out io.Writer) error {
+	fmt.Fprintf(out, "Creating %s\n", o.name)
+
+	chartname := filepath.Base(o.name)
 	cfile := &chart.Metadata{
 		Name:        chartname,
 		Description: "A Helm chart for Kubernetes",
+		Type:        "application",
 		Version:     "0.1.0",
-		AppVersion:  "1.0",
-		ApiVersion:  chartutil.ApiVersionV1,
+		AppVersion:  "0.1.0",
+		APIVersion:  chart.APIVersionV2,
 	}
 
-	if c.starter != "" {
+	if o.starter != "" {
 		// Create from the starter
-		lstarter := filepath.Join(c.home.Starters(), c.starter)
-		// If path is absolute, we dont want to prefix it with helm starters folder
-		if filepath.IsAbs(c.starter) {
-			lstarter = c.starter
+		lstarter := filepath.Join(o.starterDir, o.starter)
+		// If path is absolute, we don't want to prefix it with helm starters folder
+		if filepath.IsAbs(o.starter) {
+			lstarter = o.starter
 		}
-		return chartutil.CreateFrom(cfile, filepath.Dir(c.name), lstarter)
+		return chartutil.CreateFrom(cfile, filepath.Dir(o.name), lstarter)
 	}
 
-	_, err := chartutil.Create(cfile, filepath.Dir(c.name))
+	_, err := chartutil.Create(chartname, filepath.Dir(o.name))
 	return err
 }

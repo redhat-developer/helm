@@ -17,50 +17,81 @@ limitations under the License.
 package main
 
 import (
-	"errors"
-	"fmt"
 	"io"
 
 	"github.com/gosuri/uitable"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/repo"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/cli/output"
+	"helm.sh/helm/v3/pkg/repo"
 )
 
-type repoListCmd struct {
-	out  io.Writer
-	home helmpath.Home
-}
-
 func newRepoListCmd(out io.Writer) *cobra.Command {
-	list := &repoListCmd{out: out}
-
+	var outfmt output.Format
 	cmd := &cobra.Command{
-		Use:   "list [flags]",
-		Short: "List chart repositories",
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "list chart repositories",
+		Args:    require.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			list.home = settings.Home
-			return list.run()
+			f, err := repo.LoadFile(settings.RepositoryConfig)
+			if isNotExist(err) || len(f.Repositories) == 0 {
+				return errors.New("no repositories to show")
+			}
+
+			return outfmt.Write(out, &repoListWriter{f.Repositories})
 		},
 	}
+
+	bindOutputFlag(cmd, &outfmt)
 
 	return cmd
 }
 
-func (a *repoListCmd) run() error {
-	f, err := repo.LoadRepositoriesFile(a.home.RepositoryFile())
-	if err != nil {
-		return err
-	}
-	if len(f.Repositories) == 0 {
-		return errors.New("no repositories to show")
-	}
+type repositoryElement struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+type repoListWriter struct {
+	repos []*repo.Entry
+}
+
+func (r *repoListWriter) WriteTable(out io.Writer) error {
 	table := uitable.New()
 	table.AddRow("NAME", "URL")
-	for _, re := range f.Repositories {
+	for _, re := range r.repos {
 		table.AddRow(re.Name, re.URL)
 	}
-	fmt.Fprintln(a.out, table)
+	return output.EncodeTable(out, table)
+}
+
+func (r *repoListWriter) WriteJSON(out io.Writer) error {
+	return r.encodeByFormat(out, output.JSON)
+}
+
+func (r *repoListWriter) WriteYAML(out io.Writer) error {
+	return r.encodeByFormat(out, output.YAML)
+}
+
+func (r *repoListWriter) encodeByFormat(out io.Writer, format output.Format) error {
+	// Initialize the array so no results returns an empty array instead of null
+	repolist := make([]repositoryElement, 0, len(r.repos))
+
+	for _, re := range r.repos {
+		repolist = append(repolist, repositoryElement{Name: re.Name, URL: re.URL})
+	}
+
+	switch format {
+	case output.JSON:
+		return output.EncodeJSON(out, repolist)
+	case output.YAML:
+		return output.EncodeYAML(out, repolist)
+	}
+
+	// Because this is a non-exported function and only called internally by
+	// WriteJSON and WriteYAML, we shouldn't get invalid types
 	return nil
 }

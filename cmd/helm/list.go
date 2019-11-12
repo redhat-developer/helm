@@ -17,38 +17,37 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
+	"os"
+	"strconv"
 
-	"github.com/ghodss/yaml"
 	"github.com/gosuri/uitable"
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/helm"
-	"k8s.io/helm/pkg/proto/hapi/release"
-	"k8s.io/helm/pkg/proto/hapi/services"
-	"k8s.io/helm/pkg/timeconv"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/cli/output"
+	"helm.sh/helm/v3/pkg/release"
 )
 
 var listHelp = `
 This command lists all of the releases.
 
 By default, it lists only releases that are deployed or failed. Flags like
-'--deleted' and '--all' will alter this behavior. Such flags can be combined:
-'--deleted --failed'.
+'--uninstalled' and '--all' will alter this behavior. Such flags can be combined:
+'--uninstalled --failed'.
 
 By default, items are sorted alphabetically. Use the '-d' flag to sort by
 release date.
 
-If an argument is provided, it will be treated as a filter. Filters are
+If the --filter flag is provided, it will be treated as a filter. Filters are
 regular expressions (Perl compatible) that are applied to the list of releases.
 Only items that match the filter will be returned.
 
-	$ helm list 'ara[a-z]+'
-	NAME            	UPDATED                 	CHART
-	maudlin-arachnid	Mon May  9 16:07:08 2016	alpine-0.1.0
+    $ helm list --filter 'ara[a-z]+'
+    NAME                UPDATED                     CHART
+    maudlin-arachnid    Mon May  9 16:07:08 2016    alpine-0.1.0
 
 If no results are found, 'helm list' will exit 0, but with no output (or in
 the case of no '-q' flag, only headers).
@@ -59,297 +58,106 @@ server's default, which may be much higher than 256. Pairing the '--max'
 flag with the '--offset' flag allows you to page through results.
 `
 
-type listCmd struct {
-	filter      string
-	short       bool
-	limit       int
-	offset      string
-	byDate      bool
-	sortDesc    bool
-	out         io.Writer
-	all         bool
-	deleted     bool
-	deleting    bool
-	deployed    bool
-	failed      bool
-	namespace   string
-	superseded  bool
-	pending     bool
-	client      helm.Interface
-	colWidth    uint
-	output      string
-	byChartName bool
-}
-
-type listResult struct {
-	Next     string
-	Releases []listRelease
-}
-
-type listRelease struct {
-	Name       string
-	Revision   int32
-	Updated    string
-	Status     string
-	Chart      string
-	AppVersion string
-	Namespace  string
-}
-
-func newListCmd(client helm.Interface, out io.Writer) *cobra.Command {
-	list := &listCmd{
-		out:    out,
-		client: client,
-	}
+func newListCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	client := action.NewList(cfg)
+	var outfmt output.Format
 
 	cmd := &cobra.Command{
-		Use:     "list [flags] [FILTER]",
-		Short:   "List releases",
+		Use:     "list",
+		Short:   "list releases",
 		Long:    listHelp,
 		Aliases: []string{"ls"},
-		PreRunE: func(_ *cobra.Command, _ []string) error { return setupConnection() },
+		Args:    require.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 {
-				list.filter = strings.Join(args, " ")
+			if client.AllNamespaces {
+				if err := cfg.Init(settings.RESTClientGetter(), "", os.Getenv("HELM_DRIVER"), debug); err != nil {
+					return err
+				}
 			}
-			if list.client == nil {
-				list.client = newClient()
+			client.SetStateMask()
+
+			results, err := client.Run()
+
+			if client.Short {
+				for _, res := range results {
+					fmt.Fprintln(out, res.Name)
+				}
+				return err
 			}
-			return list.run()
+
+			return outfmt.Write(out, newReleaseListWriter(results))
 		},
 	}
 
 	f := cmd.Flags()
-	settings.AddFlagsTLS(f)
-	f.BoolVarP(&list.short, "short", "q", false, "Output short (quiet) listing format")
-	f.BoolVarP(&list.byDate, "date", "d", false, "Sort by release date")
-	f.BoolVarP(&list.sortDesc, "reverse", "r", false, "Reverse the sort order")
-	f.IntVarP(&list.limit, "max", "m", 256, "Maximum number of releases to fetch")
-	f.StringVarP(&list.offset, "offset", "o", "", "Next release name in the list, used to offset from start value")
-	f.BoolVarP(&list.all, "all", "a", false, "Show all releases, not just the ones marked DEPLOYED")
-	f.BoolVar(&list.deleted, "deleted", false, "Show deleted releases")
-	f.BoolVar(&list.deleting, "deleting", false, "Show releases that are currently being deleted")
-	f.BoolVar(&list.deployed, "deployed", false, "Show deployed releases. If no other is specified, this will be automatically enabled")
-	f.BoolVar(&list.failed, "failed", false, "Show failed releases")
-	f.BoolVar(&list.pending, "pending", false, "Show pending releases")
-	f.StringVar(&list.namespace, "namespace", "", "Show releases within a specific namespace")
-	f.UintVar(&list.colWidth, "col-width", 60, "Specifies the max column width of output")
-	f.StringVar(&list.output, "output", "", "Output the specified format (json or yaml)")
-	f.BoolVarP(&list.byChartName, "chart-name", "c", false, "Sort by chart name")
-
-	// TODO: Do we want this as a feature of 'helm list'?
-	//f.BoolVar(&list.superseded, "history", true, "show historical releases")
-
-	// set defaults from environment
-	settings.InitTLS(f)
+	f.BoolVarP(&client.Short, "short", "q", false, "output short (quiet) listing format")
+	f.BoolVarP(&client.ByDate, "date", "d", false, "sort by release date")
+	f.BoolVarP(&client.SortReverse, "reverse", "r", false, "reverse the sort order")
+	f.BoolVarP(&client.All, "all", "a", false, "show all releases, not just the ones marked deployed or failed")
+	f.BoolVar(&client.Uninstalled, "uninstalled", false, "show uninstalled releases")
+	f.BoolVar(&client.Superseded, "superseded", false, "show superseded releases")
+	f.BoolVar(&client.Uninstalling, "uninstalling", false, "show releases that are currently being uninstalled")
+	f.BoolVar(&client.Deployed, "deployed", false, "show deployed releases. If no other is specified, this will be automatically enabled")
+	f.BoolVar(&client.Failed, "failed", false, "show failed releases")
+	f.BoolVar(&client.Pending, "pending", false, "show pending releases")
+	f.BoolVarP(&client.AllNamespaces, "all-namespaces", "A", false, "list releases across all namespaces")
+	f.IntVarP(&client.Limit, "max", "m", 256, "maximum number of releases to fetch")
+	f.IntVar(&client.Offset, "offset", 0, "next release name in the list, used to offset from start value")
+	f.StringVarP(&client.Filter, "filter", "f", "", "a regular expression (Perl compatible). Any releases that match the expression will be included in the results")
+	bindOutputFlag(cmd, &outfmt)
 
 	return cmd
 }
 
-func (l *listCmd) run() error {
-	sortBy := services.ListSort_NAME
-	if l.byDate {
-		sortBy = services.ListSort_LAST_RELEASED
-	}
-	if l.byChartName {
-		sortBy = services.ListSort_CHART_NAME
-	}
-
-	sortOrder := services.ListSort_ASC
-	if l.sortDesc {
-		sortOrder = services.ListSort_DESC
-	}
-
-	stats := l.statusCodes()
-
-	res, err := l.client.ListReleases(
-		helm.ReleaseListLimit(l.limit),
-		helm.ReleaseListOffset(l.offset),
-		helm.ReleaseListFilter(l.filter),
-		helm.ReleaseListSort(int32(sortBy)),
-		helm.ReleaseListOrder(int32(sortOrder)),
-		helm.ReleaseListStatuses(stats),
-		helm.ReleaseListNamespace(l.namespace),
-	)
-
-	if err != nil {
-		return prettyError(err)
-	}
-	if res == nil {
-		return nil
-	}
-
-	rels := filterList(res.GetReleases())
-
-	result := getListResult(rels, res.Next)
-
-	output, err := formatResult(l.output, l.short, result, l.colWidth)
-
-	if err != nil {
-		return prettyError(err)
-	}
-
-	fmt.Fprintln(l.out, output)
-	return nil
+type releaseElement struct {
+	Name       string `json:"name"`
+	Namespace  string `json:"namespace"`
+	Revision   string `json:"revision"`
+	Updated    string `json:"updated"`
+	Status     string `json:"status"`
+	Chart      string `json:"chart"`
+	AppVersion string `json:"app_version"`
 }
 
-// filterList returns a list scrubbed of old releases.
-func filterList(rels []*release.Release) []*release.Release {
-	idx := map[string]int32{}
-
-	for _, r := range rels {
-		name, version := r.GetName(), r.GetVersion()
-		if max, ok := idx[name]; ok {
-			// check if we have a greater version already
-			if max > version {
-				continue
-			}
-		}
-		idx[name] = version
-	}
-
-	uniq := make([]*release.Release, 0, len(idx))
-	for _, r := range rels {
-		if idx[r.GetName()] == r.GetVersion() {
-			uniq = append(uniq, r)
-		}
-	}
-	return uniq
+type releaseListWriter struct {
+	releases []releaseElement
 }
 
-// statusCodes gets the list of status codes that are to be included in the results.
-func (l *listCmd) statusCodes() []release.Status_Code {
-	if l.all {
-		return []release.Status_Code{
-			release.Status_UNKNOWN,
-			release.Status_DEPLOYED,
-			release.Status_DELETED,
-			release.Status_DELETING,
-			release.Status_FAILED,
-			release.Status_PENDING_INSTALL,
-			release.Status_PENDING_UPGRADE,
-			release.Status_PENDING_ROLLBACK,
+func newReleaseListWriter(releases []*release.Release) *releaseListWriter {
+	// Initialize the array so no results returns an empty array instead of null
+	elements := make([]releaseElement, 0, len(releases))
+	for _, r := range releases {
+		element := releaseElement{
+			Name:       r.Name,
+			Namespace:  r.Namespace,
+			Revision:   strconv.Itoa(r.Version),
+			Status:     r.Info.Status.String(),
+			Chart:      fmt.Sprintf("%s-%s", r.Chart.Metadata.Name, r.Chart.Metadata.Version),
+			AppVersion: r.Chart.Metadata.AppVersion,
 		}
-	}
-	status := []release.Status_Code{}
-	if l.deployed {
-		status = append(status, release.Status_DEPLOYED)
-	}
-	if l.deleted {
-		status = append(status, release.Status_DELETED)
-	}
-	if l.deleting {
-		status = append(status, release.Status_DELETING)
-	}
-	if l.failed {
-		status = append(status, release.Status_FAILED)
-	}
-	if l.superseded {
-		status = append(status, release.Status_SUPERSEDED)
-	}
-	if l.pending {
-		status = append(status, release.Status_PENDING_INSTALL, release.Status_PENDING_UPGRADE, release.Status_PENDING_ROLLBACK)
-	}
-
-	// Default case.
-	if len(status) == 0 {
-		status = append(status, release.Status_DEPLOYED, release.Status_FAILED)
-	}
-	return status
-}
-
-func getListResult(rels []*release.Release, next string) listResult {
-	listReleases := []listRelease{}
-	for _, r := range rels {
-		md := r.GetChart().GetMetadata()
 		t := "-"
-		if tspb := r.GetInfo().GetLastDeployed(); tspb != nil {
-			t = timeconv.String(tspb)
+		if tspb := r.Info.LastDeployed; !tspb.IsZero() {
+			t = tspb.String()
 		}
-
-		lr := listRelease{
-			Name:       r.GetName(),
-			Revision:   r.GetVersion(),
-			Updated:    t,
-			Status:     r.GetInfo().GetStatus().GetCode().String(),
-			Chart:      fmt.Sprintf("%s-%s", md.GetName(), md.GetVersion()),
-			AppVersion: md.GetAppVersion(),
-			Namespace:  r.GetNamespace(),
-		}
-		listReleases = append(listReleases, lr)
+		element.Updated = t
+		elements = append(elements, element)
 	}
-
-	return listResult{
-		Releases: listReleases,
-		Next:     next,
-	}
+	return &releaseListWriter{elements}
 }
 
-func shortenListResult(result listResult) []string {
-	names := []string{}
-	for _, r := range result.Releases {
-		names = append(names, r.Name)
-	}
-
-	return names
-}
-
-func formatResult(format string, short bool, result listResult, colWidth uint) (string, error) {
-	var output string
-	var err error
-
-	var shortResult []string
-	var finalResult interface{}
-	if short {
-		shortResult = shortenListResult(result)
-		finalResult = shortResult
-	} else {
-		finalResult = result
-	}
-
-	switch format {
-	case "":
-		if short {
-			output = formatTextShort(shortResult)
-		} else {
-			output = formatText(result, colWidth)
-		}
-	case "json":
-		o, e := json.Marshal(finalResult)
-		if e != nil {
-			err = fmt.Errorf("Failed to Marshal JSON output: %s", e)
-		} else {
-			output = string(o)
-		}
-	case "yaml":
-		o, e := yaml.Marshal(finalResult)
-		if e != nil {
-			err = fmt.Errorf("Failed to Marshal YAML output: %s", e)
-		} else {
-			output = string(o)
-		}
-	default:
-		err = fmt.Errorf("Unknown output format \"%s\"", format)
-	}
-	return output, err
-}
-
-func formatText(result listResult, colWidth uint) string {
-	nextOutput := ""
-	if result.Next != "" {
-		nextOutput = fmt.Sprintf("\tnext: %s\n", result.Next)
-	}
-
+func (r *releaseListWriter) WriteTable(out io.Writer) error {
 	table := uitable.New()
-	table.MaxColWidth = colWidth
-	table.AddRow("NAME", "REVISION", "UPDATED", "STATUS", "CHART", "APP VERSION", "NAMESPACE")
-	for _, lr := range result.Releases {
-		table.AddRow(lr.Name, lr.Revision, lr.Updated, lr.Status, lr.Chart, lr.AppVersion, lr.Namespace)
+	table.AddRow("NAME", "NAMESPACE", "REVISION", "UPDATED", "STATUS", "CHART", "APP VERSION")
+	for _, r := range r.releases {
+		table.AddRow(r.Name, r.Namespace, r.Revision, r.Updated, r.Status, r.Chart, r.AppVersion)
 	}
-
-	return fmt.Sprintf("%s%s", nextOutput, table.String())
+	return output.EncodeTable(out, table)
 }
 
-func formatTextShort(shortResult []string) string {
-	return strings.Join(shortResult, "\n")
+func (r *releaseListWriter) WriteJSON(out io.Writer) error {
+	return output.EncodeJSON(out, r.releases)
+}
+
+func (r *releaseListWriter) WriteYAML(out io.Writer) error {
+	return output.EncodeYAML(out, r.releases)
 }

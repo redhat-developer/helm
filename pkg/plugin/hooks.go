@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package plugin // import "k8s.io/helm/pkg/plugin"
+package plugin // import "helm.sh/helm/v3/pkg/plugin"
 
 // Types of hooks
 const (
@@ -27,9 +27,3 @@ const (
 
 // Hooks is a map of events to commands.
 type Hooks map[string]string
-
-// Get returns a hook for an event.
-func (hooks Hooks) Get(event string) string {
-	h, _ := hooks[event]
-	return h
-}

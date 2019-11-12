@@ -14,21 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package rules // import "k8s.io/helm/pkg/lint/rules"
+package rules // import "helm.sh/helm/v3/pkg/lint/rules"
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/Masterminds/semver"
-
+	"github.com/Masterminds/semver/v3"
 	"github.com/asaskevich/govalidator"
-	"k8s.io/helm/pkg/chartutil"
-	"k8s.io/helm/pkg/lint/support"
-	"k8s.io/helm/pkg/proto/hapi/chart"
+	"github.com/pkg/errors"
+
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chartutil"
+	"helm.sh/helm/v3/pkg/lint/support"
 )
 
 // Chartfile runs a set of linter rules related to Chart.yaml file
@@ -47,17 +46,17 @@ func Chartfile(linter *support.Linter) {
 	}
 
 	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartNamePresence(chartFile))
-	linter.RunLinterRule(support.WarningSev, chartFileName, validateChartNameFormat(chartFile))
 	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartNameDirMatch(linter.ChartDir, chartFile))
 
 	// Chart metadata
 	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartAPIVersion(chartFile))
 	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartVersion(chartFile))
-	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartEngine(chartFile))
 	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartMaintainer(chartFile))
 	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartSources(chartFile))
 	linter.RunLinterRule(support.InfoSev, chartFileName, validateChartIconPresence(chartFile))
 	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartIconURL(chartFile))
+	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartType(chartFile))
+	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartDependencies(chartFile))
 }
 
 func validateChartYamlNotDirectory(chartPath string) error {
@@ -71,7 +70,7 @@ func validateChartYamlNotDirectory(chartPath string) error {
 
 func validateChartYamlFormat(chartFileError error) error {
 	if chartFileError != nil {
-		return fmt.Errorf("unable to parse YAML\n\t%s", chartFileError.Error())
+		return errors.Errorf("unable to parse YAML\n\t%s", chartFileError.Error())
 	}
 	return nil
 }
@@ -83,27 +82,20 @@ func validateChartNamePresence(cf *chart.Metadata) error {
 	return nil
 }
 
-func validateChartNameFormat(cf *chart.Metadata) error {
-	if strings.Contains(cf.Name, ".") {
-		return errors.New("name should be lower case letters and numbers. Words may be separated with dashes")
-	}
-	return nil
-}
-
 func validateChartNameDirMatch(chartDir string, cf *chart.Metadata) error {
 	if cf.Name != filepath.Base(chartDir) {
-		return fmt.Errorf("directory name (%s) and chart name (%s) must be the same", filepath.Base(chartDir), cf.Name)
+		return errors.Errorf("directory name (%s) and chart name (%s) must be the same", filepath.Base(chartDir), cf.Name)
 	}
 	return nil
 }
 
 func validateChartAPIVersion(cf *chart.Metadata) error {
-	if cf.ApiVersion == "" {
-		return errors.New("apiVersion is required")
+	if cf.APIVersion == "" {
+		return errors.New("apiVersion is required. The value must be either \"v1\" or \"v2\"")
 	}
 
-	if cf.ApiVersion != "v1" {
-		return fmt.Errorf("apiVersion '%s' is not valid. The value must be \"v1\"", cf.ApiVersion)
+	if cf.APIVersion != chart.APIVersionV1 && cf.APIVersion != chart.APIVersionV2 {
+		return fmt.Errorf("apiVersion '%s' is not valid. The value must be either \"v1\" or \"v2\"", cf.APIVersion)
 	}
 
 	return nil
@@ -117,43 +109,20 @@ func validateChartVersion(cf *chart.Metadata) error {
 	version, err := semver.NewVersion(cf.Version)
 
 	if err != nil {
-		return fmt.Errorf("version '%s' is not a valid SemVer", cf.Version)
+		return errors.Errorf("version '%s' is not a valid SemVer", cf.Version)
 	}
 
-	c, err := semver.NewConstraint("> 0")
+	c, err := semver.NewConstraint(">0.0.0-0")
 	if err != nil {
 		return err
 	}
 	valid, msg := c.Validate(version)
 
 	if !valid && len(msg) > 0 {
-		return fmt.Errorf("version %v", msg[0])
+		return errors.Errorf("version %v", msg[0])
 	}
 
 	return nil
-}
-
-func validateChartEngine(cf *chart.Metadata) error {
-	if cf.Engine == "" {
-		return nil
-	}
-
-	keys := make([]string, 0, len(chart.Metadata_Engine_value))
-	for engine := range chart.Metadata_Engine_value {
-		str := strings.ToLower(engine)
-
-		if str == "unknown" {
-			continue
-		}
-
-		if str == cf.Engine {
-			return nil
-		}
-
-		keys = append(keys, str)
-	}
-
-	return fmt.Errorf("engine '%v' not valid. Valid options are %v", cf.Engine, keys)
 }
 
 func validateChartMaintainer(cf *chart.Metadata) error {
@@ -161,9 +130,9 @@ func validateChartMaintainer(cf *chart.Metadata) error {
 		if maintainer.Name == "" {
 			return errors.New("each maintainer requires a name")
 		} else if maintainer.Email != "" && !govalidator.IsEmail(maintainer.Email) {
-			return fmt.Errorf("invalid email '%s' for maintainer '%s'", maintainer.Email, maintainer.Name)
-		} else if maintainer.Url != "" && !govalidator.IsURL(maintainer.Url) {
-			return fmt.Errorf("invalid url '%s' for maintainer '%s'", maintainer.Url, maintainer.Name)
+			return errors.Errorf("invalid email '%s' for maintainer '%s'", maintainer.Email, maintainer.Name)
+		} else if maintainer.URL != "" && !govalidator.IsURL(maintainer.URL) {
+			return errors.Errorf("invalid url '%s' for maintainer '%s'", maintainer.URL, maintainer.Name)
 		}
 	}
 	return nil
@@ -172,7 +141,7 @@ func validateChartMaintainer(cf *chart.Metadata) error {
 func validateChartSources(cf *chart.Metadata) error {
 	for _, source := range cf.Sources {
 		if source == "" || !govalidator.IsRequestURL(source) {
-			return fmt.Errorf("invalid source URL '%s'", source)
+			return errors.Errorf("invalid source URL '%s'", source)
 		}
 	}
 	return nil
@@ -187,7 +156,21 @@ func validateChartIconPresence(cf *chart.Metadata) error {
 
 func validateChartIconURL(cf *chart.Metadata) error {
 	if cf.Icon != "" && !govalidator.IsRequestURL(cf.Icon) {
-		return fmt.Errorf("invalid icon URL '%s'", cf.Icon)
+		return errors.Errorf("invalid icon URL '%s'", cf.Icon)
+	}
+	return nil
+}
+
+func validateChartDependencies(cf *chart.Metadata) error {
+	if len(cf.Dependencies) > 0 && cf.APIVersion != chart.APIVersionV2 {
+		return fmt.Errorf("dependencies are not valid in the Chart file with apiVersion '%s'. They are valid in apiVersion '%s'", cf.APIVersion, chart.APIVersionV2)
+	}
+	return nil
+}
+
+func validateChartType(cf *chart.Metadata) error {
+	if len(cf.Type) > 0 && cf.APIVersion != chart.APIVersionV2 {
+		return fmt.Errorf("chart type is not valid in apiVersion '%s'. It is valid in apiVersion '%s'", cf.APIVersion, chart.APIVersionV2)
 	}
 	return nil
 }

@@ -14,17 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package lint // import "k8s.io/helm/pkg/lint"
+package lint // import "helm.sh/helm/v3/pkg/lint"
 
 import (
 	"path/filepath"
 
-	"k8s.io/helm/pkg/lint/rules"
-	"k8s.io/helm/pkg/lint/support"
+	"helm.sh/helm/v3/pkg/lint/rules"
+	"helm.sh/helm/v3/pkg/lint/support"
 )
 
 // All runs all of the available linters on the given base directory.
-func All(basedir string, values []byte, namespace string, strict bool) support.Linter {
+func All(basedir string, values map[string]interface{}, namespace string, strict bool) support.Linter {
 	// Using abs path to get directory context
 	chartDir, _ := filepath.Abs(basedir)
 

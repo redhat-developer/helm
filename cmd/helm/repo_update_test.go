@@ -19,190 +19,62 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"testing"
 
-	"k8s.io/helm/pkg/getter"
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/repo"
-	"k8s.io/helm/pkg/repo/repotest"
+	"helm.sh/helm/v3/internal/test/ensure"
+	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/repo/repotest"
 )
 
 func TestUpdateCmd(t *testing.T) {
-	thome, err := tempHelmHome(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cleanup := resetEnv()
-	defer func() {
-		os.RemoveAll(thome.String())
-		cleanup()
-	}()
-
-	settings.Home = thome
-
-	out := bytes.NewBuffer(nil)
+	var out bytes.Buffer
 	// Instead of using the HTTP updater, we provide our own for this test.
 	// The TestUpdateCharts test verifies the HTTP behavior independently.
-	updater := func(repos []*repo.ChartRepository, out io.Writer, hh helmpath.Home, strict bool) error {
+	updater := func(repos []*repo.ChartRepository, out io.Writer) {
 		for _, re := range repos {
 			fmt.Fprintln(out, re.Config.Name)
 		}
-		return nil
 	}
-	uc := &repoUpdateCmd{
-		update: updater,
-		home:   helmpath.Home(thome),
-		out:    out,
+	o := &repoUpdateOptions{
+		update:   updater,
+		repoFile: "testdata/repositories.yaml",
 	}
-	if err := uc.run(); err != nil {
+	if err := o.run(&out); err != nil {
 		t.Fatal(err)
 	}
 
-	if got := out.String(); !strings.Contains(got, "charts") || !strings.Contains(got, "local") {
-		t.Errorf("Expected 'charts' and 'local' (in any order) got %q", got)
+	if got := out.String(); !strings.Contains(got, "charts") {
+		t.Errorf("Expected 'charts' got %q", got)
 	}
 }
 
 func TestUpdateCharts(t *testing.T) {
-	ts, thome, err := repotest.NewTempServer("testdata/testserver/*.*")
+	defer resetEnv()()
+	defer ensure.HelmHome(t)()
+
+	ts, err := repotest.NewTempServer("testdata/testserver/*.*")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	hh := helmpath.Home(thome)
-	cleanup := resetEnv()
-	defer func() {
-		ts.Stop()
-		os.RemoveAll(thome.String())
-		cleanup()
-	}()
-	if err := ensureTestHome(hh, t); err != nil {
-		t.Fatal(err)
-	}
-
-	settings.Home = thome
+	defer ts.Stop()
 
 	r, err := repo.NewChartRepository(&repo.Entry{
-		Name:  "charts",
-		URL:   ts.URL(),
-		Cache: hh.CacheIndex("charts"),
+		Name: "charts",
+		URL:  ts.URL(),
 	}, getter.All(settings))
 	if err != nil {
 		t.Error(err)
 	}
 
 	b := bytes.NewBuffer(nil)
-	updateCharts([]*repo.ChartRepository{r}, b, hh, false)
+	updateCharts([]*repo.ChartRepository{r}, b)
 
 	got := b.String()
 	if strings.Contains(got, "Unable to get an update") {
 		t.Errorf("Failed to get a repo: %q", got)
 	}
-	if !strings.Contains(got, "Update Complete.") {
-		t.Error("Update was not successful")
-	}
-}
-
-func TestUpdateCmdStrictFlag(t *testing.T) {
-	thome, err := tempHelmHome(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cleanup := resetEnv()
-	defer func() {
-		os.RemoveAll(thome.String())
-		cleanup()
-	}()
-
-	settings.Home = thome
-
-	out := bytes.NewBuffer(nil)
-	cmd := newRepoUpdateCmd(out)
-	cmd.ParseFlags([]string{"--strict"})
-
-	if err := cmd.RunE(cmd, []string{}); err == nil {
-		t.Fatal("expected error due to strict flag")
-	}
-
-	if got := out.String(); !strings.Contains(got, "Unable to get an update") {
-		t.Errorf("Expected 'Unable to get an update', got %q", got)
-	}
-}
-
-func TestUpdateCmdWithSingleRepoNameWhichDoesntExist(t *testing.T) {
-	thome, err := tempHelmHome(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cleanup := resetEnv()
-	defer func() {
-		os.RemoveAll(thome.String())
-		cleanup()
-	}()
-
-	settings.Home = thome
-
-	out := bytes.NewBuffer(nil)
-	cmd := newRepoUpdateCmd(out)
-
-	if err = cmd.RunE(cmd, []string{"randomRepo"}); err == nil {
-		t.Fatal("expected error due to wrong repo name")
-	}
-
-	if got := fmt.Sprintf("%v", err); !strings.Contains(got, "no repositories found matching the provided name. Verify if the repo exists") {
-		t.Errorf("Expected 'no repositories found matching the provided name. Verify if the repo exists', got %q", got)
-	}
-}
-
-func TestUpdateRepo(t *testing.T) {
-	ts, thome, err := repotest.NewTempServer("testdata/testserver/*.*")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	hh := helmpath.Home(thome)
-	cleanup := resetEnv()
-	defer func() {
-		ts.Stop()
-		os.RemoveAll(thome.String())
-		cleanup()
-	}()
-	if err := ensureTestHome(hh, t); err != nil {
-		t.Fatal(err)
-	}
-
-	settings.Home = thome
-
-	if err := addRepository("repo1", ts.URL(), "", "", hh, "", "", "", true); err != nil {
-		t.Error(err)
-	}
-
-	if err := addRepository("repo2", ts.URL(), "", "", hh, "", "", "", true); err != nil {
-		t.Error(err)
-	}
-
-	out := bytes.NewBuffer(nil)
-	cmd := newRepoUpdateCmd(out)
-
-	if err = cmd.RunE(cmd, []string{"repo1"}); err != nil {
-		t.Fatal("expected to update repo1 correctly")
-	}
-
-	got := out.String()
-
-	if !strings.Contains(got, "Successfully got an update from the \"repo1\"") {
-		t.Errorf("Expected to successfully update \"repo1\" repository, got %q", got)
-	}
-
-	if strings.Contains(got, "Successfully got an update from the \"repo2\"") {
-		t.Errorf("Shouldn't have updated \"repo2\" repository, got %q", got)
-	}
-
 	if !strings.Contains(got, "Update Complete.") {
 		t.Error("Update was not successful")
 	}

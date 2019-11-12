@@ -17,29 +17,21 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
-	"github.com/ghodss/yaml"
 	"github.com/gosuri/uitable"
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/helm"
-	"k8s.io/helm/pkg/proto/hapi/chart"
-	"k8s.io/helm/pkg/proto/hapi/release"
-	"k8s.io/helm/pkg/timeconv"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/cli/output"
+	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v3/pkg/releaseutil"
+	helmtime "helm.sh/helm/v3/pkg/time"
 )
-
-type releaseInfo struct {
-	Revision    int32  `json:"revision"`
-	Updated     string `json:"updated"`
-	Status      string `json:"status"`
-	Chart       string `json:"chart"`
-	Description string `json:"description"`
-}
-
-type releaseHistory []releaseInfo
 
 var historyHelp = `
 History prints historical revisions for a given release.
@@ -49,104 +41,110 @@ configures the maximum length of the revision list returned.
 
 The historical release set is printed as a formatted table, e.g:
 
-    $ helm history angry-bird --max=4
-    REVISION   UPDATED                      STATUS           CHART        DESCRIPTION
-    1           Mon Oct 3 10:15:13 2016     SUPERSEDED      alpine-0.1.0  Initial install
-    2           Mon Oct 3 10:15:13 2016     SUPERSEDED      alpine-0.1.0  Upgraded successfully
-    3           Mon Oct 3 10:15:13 2016     SUPERSEDED      alpine-0.1.0  Rolled back to 2
-    4           Mon Oct 3 10:15:13 2016     DEPLOYED        alpine-0.1.0  Upgraded successfully
+    $ helm history angry-bird
+    REVISION    UPDATED                     STATUS          CHART             APP VERSION     DESCRIPTION
+    1           Mon Oct 3 10:15:13 2016     superseded      alpine-0.1.0      1.0             Initial install
+    2           Mon Oct 3 10:15:13 2016     superseded      alpine-0.1.0      1.0             Upgraded successfully
+    3           Mon Oct 3 10:15:13 2016     superseded      alpine-0.1.0      1.0             Rolled back to 2
+    4           Mon Oct 3 10:15:13 2016     deployed        alpine-0.1.0      1.0             Upgraded successfully
 `
 
-type historyCmd struct {
-	max          int32
-	rls          string
-	out          io.Writer
-	helmc        helm.Interface
-	colWidth     uint
-	outputFormat string
-}
-
-func newHistoryCmd(c helm.Interface, w io.Writer) *cobra.Command {
-	his := &historyCmd{out: w, helmc: c}
+func newHistoryCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	client := action.NewHistory(cfg)
+	var outfmt output.Format
 
 	cmd := &cobra.Command{
-		Use:     "history [flags] RELEASE_NAME",
+		Use:     "history RELEASE_NAME",
 		Long:    historyHelp,
-		Short:   "Fetch release history",
+		Short:   "fetch release history",
 		Aliases: []string{"hist"},
-		PreRunE: func(_ *cobra.Command, _ []string) error { return setupConnection() },
+		Args:    require.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			switch {
-			case len(args) == 0:
-				return errReleaseRequired
-			case his.helmc == nil:
-				his.helmc = newClient()
+			history, err := getHistory(client, args[0])
+			if err != nil {
+				return err
 			}
-			his.rls = args[0]
-			return his.run()
+
+			return outfmt.Write(out, history)
 		},
 	}
 
 	f := cmd.Flags()
-	settings.AddFlagsTLS(f)
-	f.Int32Var(&his.max, "max", 256, "Maximum number of revisions to include in history")
-	f.UintVar(&his.colWidth, "col-width", 60, "Specifies the max column width of output")
-	f.StringVarP(&his.outputFormat, "output", "o", "table", "Prints the output in the specified format (json|table|yaml)")
-
-	// set defaults from environment
-	settings.InitTLS(f)
+	f.IntVar(&client.Max, "max", 256, "maximum number of revision to include in history")
+	bindOutputFlag(cmd, &outfmt)
 
 	return cmd
 }
 
-func (cmd *historyCmd) run() error {
-	r, err := cmd.helmc.ReleaseHistory(cmd.rls, helm.WithMaxHistory(cmd.max))
+type releaseInfo struct {
+	Revision    int           `json:"revision"`
+	Updated     helmtime.Time `json:"updated"`
+	Status      string        `json:"status"`
+	Chart       string        `json:"chart"`
+	AppVersion  string        `json:"app_version"`
+	Description string        `json:"description"`
+}
+
+type releaseHistory []releaseInfo
+
+func (r releaseHistory) WriteJSON(out io.Writer) error {
+	return output.EncodeJSON(out, r)
+}
+
+func (r releaseHistory) WriteYAML(out io.Writer) error {
+	return output.EncodeYAML(out, r)
+}
+
+func (r releaseHistory) WriteTable(out io.Writer) error {
+	tbl := uitable.New()
+	tbl.AddRow("REVISION", "UPDATED", "STATUS", "CHART", "APP VERSION", "DESCRIPTION")
+	for _, item := range r {
+		tbl.AddRow(item.Revision, item.Updated.Format(time.ANSIC), item.Status, item.Chart, item.AppVersion, item.Description)
+	}
+	return output.EncodeTable(out, tbl)
+}
+
+func getHistory(client *action.History, name string) (releaseHistory, error) {
+	hist, err := client.Run(name)
 	if err != nil {
-		return prettyError(err)
-	}
-	if len(r.Releases) == 0 {
-		return nil
+		return nil, err
 	}
 
-	releaseHistory := getReleaseHistory(r.Releases)
+	releaseutil.Reverse(hist, releaseutil.SortByRevision)
 
-	var history []byte
-	var formattingError error
-
-	switch cmd.outputFormat {
-	case "yaml":
-		history, formattingError = yaml.Marshal(releaseHistory)
-	case "json":
-		history, formattingError = json.Marshal(releaseHistory)
-	case "table":
-		history = formatAsTable(releaseHistory, cmd.colWidth)
-	default:
-		return fmt.Errorf("unknown output format %q", cmd.outputFormat)
+	var rels []*release.Release
+	for i := 0; i < min(len(hist), client.Max); i++ {
+		rels = append(rels, hist[i])
 	}
 
-	if formattingError != nil {
-		return prettyError(formattingError)
+	if len(rels) == 0 {
+		return releaseHistory{}, nil
 	}
 
-	fmt.Fprintln(cmd.out, string(history))
-	return nil
+	releaseHistory := getReleaseHistory(rels)
+
+	return releaseHistory, nil
 }
 
 func getReleaseHistory(rls []*release.Release) (history releaseHistory) {
 	for i := len(rls) - 1; i >= 0; i-- {
 		r := rls[i]
 		c := formatChartname(r.Chart)
-		t := timeconv.String(r.Info.LastDeployed)
-		s := r.Info.Status.Code.String()
+		s := r.Info.Status.String()
 		v := r.Version
 		d := r.Info.Description
+		a := formatAppVersion(r.Chart)
 
 		rInfo := releaseInfo{
 			Revision:    v,
-			Updated:     t,
 			Status:      s,
 			Chart:       c,
+			AppVersion:  a,
 			Description: d,
+		}
+		if !r.Info.LastDeployed.IsZero() {
+			rInfo.Updated = r.Info.LastDeployed
+
 		}
 		history = append(history, rInfo)
 	}
@@ -154,23 +152,27 @@ func getReleaseHistory(rls []*release.Release) (history releaseHistory) {
 	return history
 }
 
-func formatAsTable(releases releaseHistory, colWidth uint) []byte {
-	tbl := uitable.New()
-
-	tbl.MaxColWidth = colWidth
-	tbl.AddRow("REVISION", "UPDATED", "STATUS", "CHART", "DESCRIPTION")
-	for i := 0; i <= len(releases)-1; i++ {
-		r := releases[i]
-		tbl.AddRow(r.Revision, r.Updated, r.Status, r.Chart, r.Description)
-	}
-	return tbl.Bytes()
-}
-
 func formatChartname(c *chart.Chart) string {
 	if c == nil || c.Metadata == nil {
 		// This is an edge case that has happened in prod, though we don't
-		// know how: https://github.com/kubernetes/helm/issues/1347
+		// know how: https://github.com/helm/helm/issues/1347
 		return "MISSING"
 	}
-	return fmt.Sprintf("%s-%s", c.Metadata.Name, c.Metadata.Version)
+	return fmt.Sprintf("%s-%s", c.Name(), c.Metadata.Version)
+}
+
+func formatAppVersion(c *chart.Chart) string {
+	if c == nil || c.Metadata == nil {
+		// This is an edge case that has happened in prod, though we don't
+		// know how: https://github.com/helm/helm/issues/1347
+		return "MISSING"
+	}
+	return c.AppVersion()
+}
+
+func min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
 }

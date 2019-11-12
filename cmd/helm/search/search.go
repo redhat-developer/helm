@@ -23,20 +23,14 @@ to find matches.
 package search
 
 import (
-	"errors"
 	"path"
 	"regexp"
 	"sort"
 	"strings"
 
-	"github.com/Masterminds/semver"
-	"k8s.io/helm/pkg/repo"
-)
+	"github.com/Masterminds/semver/v3"
 
-const (
-	sep = "\v"
-	// verSep is a separator for version fields in map keys.
-	verSep = "$$"
+	"helm.sh/helm/v3/pkg/repo"
 )
 
 // Result is a search result.
@@ -55,10 +49,15 @@ type Index struct {
 	charts map[string]*repo.ChartVersion
 }
 
-// NewIndex creats a new Index.
+const sep = "\v"
+
+// NewIndex creates a new Index.
 func NewIndex() *Index {
 	return &Index{lines: map[string]string{}, charts: map[string]*repo.ChartVersion{}}
 }
+
+// verSep is a separator for version fields in map keys.
+const verSep = "$$"
 
 // AddRepo adds a repository index to the search index.
 func (i *Index) AddRepo(rname string, ind *repo.IndexFile, all bool) {
@@ -176,15 +175,6 @@ func (i *Index) SearchRegexp(re string, threshold int) ([]*Result, error) {
 		}
 	}
 	return buf, nil
-}
-
-// Chart returns the ChartVersion for a particular name.
-func (i *Index) Chart(name string) (*repo.ChartVersion, error) {
-	c, ok := i.charts[name]
-	if !ok {
-		return nil, errors.New("no such chart")
-	}
-	return c, nil
 }
 
 // SortScore does an in-place sort of the results.

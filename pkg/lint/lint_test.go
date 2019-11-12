@@ -18,31 +18,29 @@ package lint
 
 import (
 	"strings"
-
-	"k8s.io/helm/pkg/lint/support"
-
 	"testing"
+
+	"helm.sh/helm/v3/pkg/lint/support"
 )
 
-var values = []byte{}
+var values map[string]interface{}
 
-const (
-	namespace        = "testNamespace"
-	strict           = false
-	badChartDir      = "rules/testdata/badchartfile"
-	badValuesFileDir = "rules/testdata/badvaluesfile"
-	badYamlFileDir   = "rules/testdata/albatross"
-	goodChartDir     = "rules/testdata/goodone"
-)
+const namespace = "testNamespace"
+const strict = false
+
+const badChartDir = "rules/testdata/badchartfile"
+const badValuesFileDir = "rules/testdata/badvaluesfile"
+const badYamlFileDir = "rules/testdata/albatross"
+const goodChartDir = "rules/testdata/goodone"
 
 func TestBadChart(t *testing.T) {
 	m := All(badChartDir, values, namespace, strict).Messages
-	if len(m) != 6 {
+	if len(m) != 8 {
 		t.Errorf("Number of errors %v", len(m))
 		t.Errorf("All didn't fail with expected errors, got %#v", m)
 	}
 	// There should be one INFO, 2 WARNINGs and one ERROR messages, check for them
-	var i, w, e, e2, e3, e4 bool
+	var i, w, e, e2, e3, e4, e5, e6 bool
 	for _, msg := range m {
 		if msg.Severity == support.InfoSev {
 			if strings.Contains(msg.Err.Error(), "icon is recommended") {
@@ -55,7 +53,7 @@ func TestBadChart(t *testing.T) {
 			}
 		}
 		if msg.Severity == support.ErrorSev {
-			if strings.Contains(msg.Err.Error(), "version 0.0.0 is less than or equal to 0") {
+			if strings.Contains(msg.Err.Error(), "version '0.0.0.0' is not a valid SemVer") {
 				e = true
 			}
 			if strings.Contains(msg.Err.Error(), "name is required") {
@@ -65,12 +63,20 @@ func TestBadChart(t *testing.T) {
 				e3 = true
 			}
 
-			if strings.Contains(msg.Err.Error(), "apiVersion is required") {
+			if strings.Contains(msg.Err.Error(), "apiVersion is required. The value must be either \"v1\" or \"v2\"") {
 				e4 = true
+			}
+
+			if strings.Contains(msg.Err.Error(), "chart type is not valid in apiVersion") {
+				e5 = true
+			}
+
+			if strings.Contains(msg.Err.Error(), "dependencies are not valid in the Chart file with apiVersion") {
+				e6 = true
 			}
 		}
 	}
-	if !e || !e2 || !e3 || !e4 || !w || !i {
+	if !e || !e2 || !e3 || !e4 || !e5 || !e6 || !w || !i {
 		t.Errorf("Didn't find all the expected errors, got %#v", m)
 	}
 }
@@ -87,7 +93,7 @@ func TestInvalidYaml(t *testing.T) {
 
 func TestBadValues(t *testing.T) {
 	m := All(badValuesFileDir, values, namespace, strict).Messages
-	if len(m) != 1 {
+	if len(m) < 1 {
 		t.Fatalf("All didn't fail with expected errors, got %#v", m)
 	}
 	if !strings.Contains(m[0].Err.Error(), "cannot unmarshal") {

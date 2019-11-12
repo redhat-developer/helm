@@ -17,51 +17,54 @@ limitations under the License.
 package main
 
 import (
-	"io"
 	"testing"
 
-	"github.com/spf13/cobra"
-
-	"k8s.io/helm/pkg/helm"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/release"
 )
 
 func TestRollbackCmd(t *testing.T) {
-
-	tests := []releaseCase{
+	rels := []*release.Release{
 		{
-			name:     "rollback a release",
-			args:     []string{"funny-honey", "1"},
-			expected: "Rollback was a success.",
+			Name:    "funny-honey",
+			Info:    &release.Info{Status: release.StatusSuperseded},
+			Chart:   &chart.Chart{},
+			Version: 1,
 		},
 		{
-			name:     "rollback a release with timeout",
-			args:     []string{"funny-honey", "1"},
-			flags:    []string{"--timeout", "120"},
-			expected: "Rollback was a success.",
-		},
-		{
-			name:     "rollback a release with wait",
-			args:     []string{"funny-honey", "1"},
-			flags:    []string{"--wait"},
-			expected: "Rollback was a success.",
-		},
-		{
-			name:     "rollback a release with description",
-			args:     []string{"funny-honey", "1"},
-			flags:    []string{"--description", "foo"},
-			expected: "Rollback was a success.",
-		},
-		{
-			name: "rollback a release without revision",
-			args: []string{"funny-honey"},
-			err:  true,
+			Name:    "funny-honey",
+			Info:    &release.Info{Status: release.StatusDeployed},
+			Chart:   &chart.Chart{},
+			Version: 2,
 		},
 	}
 
-	cmd := func(c *helm.FakeClient, out io.Writer) *cobra.Command {
-		return newRollbackCmd(c, out)
-	}
-
-	runReleaseCases(t, tests, cmd)
-
+	tests := []cmdTestCase{{
+		name:   "rollback a release",
+		cmd:    "rollback funny-honey 1",
+		golden: "output/rollback.txt",
+		rels:   rels,
+	}, {
+		name:   "rollback a release with timeout",
+		cmd:    "rollback funny-honey 1 --timeout 120s",
+		golden: "output/rollback-timeout.txt",
+		rels:   rels,
+	}, {
+		name:   "rollback a release with wait",
+		cmd:    "rollback funny-honey 1 --wait",
+		golden: "output/rollback-wait.txt",
+		rels:   rels,
+	}, {
+		name:   "rollback a release without revision",
+		cmd:    "rollback funny-honey",
+		golden: "output/rollback-no-revision.txt",
+		rels:   rels,
+	}, {
+		name:      "rollback a release without release name",
+		cmd:       "rollback",
+		golden:    "output/rollback-no-args.txt",
+		rels:      rels,
+		wantError: true,
+	}}
+	runTestCmd(t, tests)
 }

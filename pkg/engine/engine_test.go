@@ -18,13 +18,12 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
-	"k8s.io/helm/pkg/chartutil"
-	"k8s.io/helm/pkg/proto/hapi/chart"
-
-	"github.com/golang/protobuf/ptypes/any"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chartutil"
 )
 
 func TestSortTemplates(t *testing.T) {
@@ -53,25 +52,16 @@ func TestSortTemplates(t *testing.T) {
 	}
 	for i, e := range expect {
 		if got[i] != e {
-			t.Errorf("expected %q, got %q at index %d\n\tExp: %#v\n\tGot: %#v", e, got[i], i, expect, got)
-		}
-	}
-}
-
-func TestEngine(t *testing.T) {
-	e := New()
-
-	// Forbidden because they allow access to the host OS.
-	forbidden := []string{"env", "expandenv"}
-	for _, f := range forbidden {
-		if _, ok := e.FuncMap[f]; ok {
-			t.Errorf("Forbidden function %s exists in FuncMap.", f)
+			t.Fatalf("\n\tExp:\n%s\n\tGot:\n%s",
+				strings.Join(expect, "\n"),
+				strings.Join(got, "\n"),
+			)
 		}
 	}
 }
 
 func TestFuncMap(t *testing.T) {
-	fns := FuncMap()
+	fns := funcMap()
 	forbidden := []string{"env", "expandenv"}
 	for _, f := range forbidden {
 		if _, ok := fns[f]; ok {
@@ -94,56 +84,50 @@ func TestRender(t *testing.T) {
 			Name:    "moby",
 			Version: "1.2.3",
 		},
-		Templates: []*chart.Template{
-			{Name: "templates/test1", Data: []byte("{{.outer | title }} {{.inner | title}}")},
-			{Name: "templates/test2", Data: []byte("{{.global.callme | lower }}")},
+		Templates: []*chart.File{
+			{Name: "templates/test1", Data: []byte("{{.Values.outer | title }} {{.Values.inner | title}}")},
+			{Name: "templates/test2", Data: []byte("{{.Values.global.callme | lower }}")},
 			{Name: "templates/test3", Data: []byte("{{.noValue}}")},
+			{Name: "templates/test4", Data: []byte("{{toJson .Values}}")},
 		},
-		Values: &chart.Config{
-			Raw: "outer: DEFAULT\ninner: DEFAULT",
+		Values: map[string]interface{}{"outer": "DEFAULT", "inner": "DEFAULT"},
+	}
+
+	vals := map[string]interface{}{
+		"Values": map[string]interface{}{
+			"outer": "spouter",
+			"inner": "inn",
+			"global": map[string]interface{}{
+				"callme": "Ishmael",
+			},
 		},
 	}
 
-	vals := &chart.Config{
-		Raw: `
-outer: spouter
-inner: inn
-global:
-  callme: Ishmael
-`}
-
-	e := New()
 	v, err := chartutil.CoalesceValues(c, vals)
 	if err != nil {
 		t.Fatalf("Failed to coalesce values: %s", err)
 	}
-	out, err := e.Render(c, v)
+	out, err := Render(c, v)
 	if err != nil {
 		t.Errorf("Failed to render templates: %s", err)
 	}
 
-	expect := "Spouter Inn"
-	if out["moby/templates/test1"] != expect {
-		t.Errorf("Expected %q, got %q", expect, out["test1"])
+	expect := map[string]string{
+		"moby/templates/test1": "Spouter Inn",
+		"moby/templates/test2": "ishmael",
+		"moby/templates/test3": "",
+		"moby/templates/test4": `{"global":{"callme":"Ishmael"},"inner":"inn","outer":"spouter"}`,
 	}
 
-	expect = "ishmael"
-	if out["moby/templates/test2"] != expect {
-		t.Errorf("Expected %q, got %q", expect, out["test2"])
-	}
-	expect = ""
-	if out["moby/templates/test3"] != expect {
-		t.Errorf("Expected %q, got %q", expect, out["test3"])
-	}
-
-	if _, err := e.Render(c, v); err != nil {
-		t.Errorf("Unexpected error: %s", err)
+	for name, data := range expect {
+		if out[name] != data {
+			t.Errorf("Expected %q, got %q", data, out[name])
+		}
 	}
 }
 
 func TestRenderInternals(t *testing.T) {
 	// Test the internals of the rendering tool.
-	e := New()
 
 	vals := chartutil.Values{"Name": "one", "Value": "two"}
 	tpls := map[string]renderable{
@@ -154,7 +138,7 @@ func TestRenderInternals(t *testing.T) {
 		"three": {tpl: `{{template "two" dict "Value" "three"}}`, vals: vals},
 	}
 
-	out, err := e.render(tpls)
+	out, err := new(Engine).render(tpls)
 	if err != nil {
 		t.Fatalf("Failed template rendering: %s", err)
 	}
@@ -178,21 +162,24 @@ func TestRenderInternals(t *testing.T) {
 
 func TestParallelRenderInternals(t *testing.T) {
 	// Make sure that we can use one Engine to run parallel template renders.
-	e := New()
+	e := new(Engine)
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func(i int) {
-			fname := "my/file/name"
 			tt := fmt.Sprintf("expect-%d", i)
-			v := chartutil.Values{"val": tt}
-			tpls := map[string]renderable{fname: {tpl: `{{.val}}`, vals: v}}
+			tpls := map[string]renderable{
+				"t": {
+					tpl:  `{{.val}}`,
+					vals: map[string]interface{}{"val": tt},
+				},
+			}
 			out, err := e.render(tpls)
 			if err != nil {
 				t.Errorf("Failed to render %s: %s", tt, err)
 			}
-			if out[fname] != tt {
-				t.Errorf("Expected %q, got %q", tt, out[fname])
+			if out["t"] != tt {
+				t.Errorf("Expected %q, got %q", tt, out["t"])
 			}
 			wg.Done()
 		}(i)
@@ -200,58 +187,113 @@ func TestParallelRenderInternals(t *testing.T) {
 	wg.Wait()
 }
 
+func TestParseErrors(t *testing.T) {
+	vals := chartutil.Values{"Values": map[string]interface{}{}}
+
+	tplsUndefinedFunction := map[string]renderable{
+		"undefined_function": {tpl: `{{foo}}`, vals: vals},
+	}
+	_, err := new(Engine).render(tplsUndefinedFunction)
+	if err == nil {
+		t.Fatalf("Expected failures while rendering: %s", err)
+	}
+	expected := `parse error at (undefined_function:1): function "foo" not defined`
+	if err.Error() != expected {
+		t.Errorf("Expected '%s', got %q", expected, err.Error())
+	}
+}
+
+func TestExecErrors(t *testing.T) {
+	vals := chartutil.Values{"Values": map[string]interface{}{}}
+
+	tplsMissingRequired := map[string]renderable{
+		"missing_required": {tpl: `{{required "foo is required" .Values.foo}}`, vals: vals},
+	}
+	_, err := new(Engine).render(tplsMissingRequired)
+	if err == nil {
+		t.Fatalf("Expected failures while rendering: %s", err)
+	}
+	expected := `execution error at (missing_required:1:2): foo is required`
+	if err.Error() != expected {
+		t.Errorf("Expected '%s', got %q", expected, err.Error())
+	}
+
+	tplsMissingRequired = map[string]renderable{
+		"missing_required_with_colons": {tpl: `{{required ":this: message: has many: colons:" .Values.foo}}`, vals: vals},
+	}
+	_, err = new(Engine).render(tplsMissingRequired)
+	if err == nil {
+		t.Fatalf("Expected failures while rendering: %s", err)
+	}
+	expected = `execution error at (missing_required_with_colons:1:2): :this: message: has many: colons:`
+	if err.Error() != expected {
+		t.Errorf("Expected '%s', got %q", expected, err.Error())
+	}
+
+	issue6044tpl := `{{ $someEmptyValue := "" }}
+{{ $myvar := "abc" }}
+{{- required (printf "%s: something is missing" $myvar) $someEmptyValue | repeat 0 }}`
+	tplsMissingRequired = map[string]renderable{
+		"issue6044": {tpl: issue6044tpl, vals: vals},
+	}
+	_, err = new(Engine).render(tplsMissingRequired)
+	if err == nil {
+		t.Fatalf("Expected failures while rendering: %s", err)
+	}
+	expected = `execution error at (issue6044:3:4): abc: something is missing`
+	if err.Error() != expected {
+		t.Errorf("Expected '%s', got %q", expected, err.Error())
+	}
+}
+
 func TestAllTemplates(t *testing.T) {
 	ch1 := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "ch1"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/foo", Data: []byte("foo")},
 			{Name: "templates/bar", Data: []byte("bar")},
 		},
-		Dependencies: []*chart.Chart{
-			{
-				Metadata: &chart.Metadata{Name: "laboratory mice"},
-				Templates: []*chart.Template{
-					{Name: "templates/pinky", Data: []byte("pinky")},
-					{Name: "templates/brain", Data: []byte("brain")},
-				},
-				Dependencies: []*chart.Chart{{
-					Metadata: &chart.Metadata{Name: "same thing we do every night"},
-					Templates: []*chart.Template{
-						{Name: "templates/innermost", Data: []byte("innermost")},
-					}},
-				},
-			},
+	}
+	dep1 := &chart.Chart{
+		Metadata: &chart.Metadata{Name: "laboratory mice"},
+		Templates: []*chart.File{
+			{Name: "templates/pinky", Data: []byte("pinky")},
+			{Name: "templates/brain", Data: []byte("brain")},
 		},
 	}
+	ch1.AddDependency(dep1)
 
-	var v chartutil.Values
-	tpls := allTemplates(ch1, v)
+	dep2 := &chart.Chart{
+		Metadata: &chart.Metadata{Name: "same thing we do every night"},
+		Templates: []*chart.File{
+			{Name: "templates/innermost", Data: []byte("innermost")},
+		},
+	}
+	dep1.AddDependency(dep2)
+
+	tpls := allTemplates(ch1, chartutil.Values{})
 	if len(tpls) != 5 {
 		t.Errorf("Expected 5 charts, got %d", len(tpls))
 	}
 }
 
 func TestRenderDependency(t *testing.T) {
-	e := New()
 	deptpl := `{{define "myblock"}}World{{end}}`
 	toptpl := `Hello {{template "myblock"}}`
 	ch := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "outerchart"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/outer", Data: []byte(toptpl)},
 		},
-		Dependencies: []*chart.Chart{
-			{
-				Metadata: &chart.Metadata{Name: "innerchart"},
-				Templates: []*chart.Template{
-					{Name: "templates/inner", Data: []byte(deptpl)},
-				},
-			},
-		},
 	}
+	ch.AddDependency(&chart.Chart{
+		Metadata: &chart.Metadata{Name: "innerchart"},
+		Templates: []*chart.File{
+			{Name: "templates/inner", Data: []byte(deptpl)},
+		},
+	})
 
-	out, err := e.Render(ch, map[string]interface{}{})
-
+	out, err := Render(ch, map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("failed to render chart: %s", err)
 	}
@@ -268,8 +310,6 @@ func TestRenderDependency(t *testing.T) {
 }
 
 func TestRenderNestedValues(t *testing.T) {
-	e := New()
-
 	innerpath := "templates/inner.tpl"
 	outerpath := "templates/outer.tpl"
 	// Ensure namespacing rules are working.
@@ -278,48 +318,50 @@ func TestRenderNestedValues(t *testing.T) {
 
 	deepest := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "deepest"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: deepestpath, Data: []byte(`And this same {{.Values.what}} that smiles {{.Values.global.when}}`)},
 			{Name: checkrelease, Data: []byte(`Tomorrow will be {{default "happy" .Release.Name }}`)},
 		},
-		Values: &chart.Config{Raw: `what: "milkshake"`},
+		Values: map[string]interface{}{"what": "milkshake"},
 	}
 
 	inner := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "herrick"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: innerpath, Data: []byte(`Old {{.Values.who}} is still a-flyin'`)},
 		},
-		Values:       &chart.Config{Raw: `who: "Robert"`},
-		Dependencies: []*chart.Chart{deepest},
+		Values: map[string]interface{}{"who": "Robert"},
 	}
+	inner.AddDependency(deepest)
 
 	outer := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "top"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: outerpath, Data: []byte(`Gather ye {{.Values.what}} while ye may`)},
 		},
-		Values: &chart.Config{
-			Raw: `
-what: stinkweed
-who: me
-herrick:
-    who: time`,
+		Values: map[string]interface{}{
+			"what": "stinkweed",
+			"who":  "me",
+			"herrick": map[string]interface{}{
+				"who": "time",
+			},
 		},
-		Dependencies: []*chart.Chart{inner},
+	}
+	outer.AddDependency(inner)
+
+	injValues := map[string]interface{}{
+		"what": "rosebuds",
+		"herrick": map[string]interface{}{
+			"deepest": map[string]interface{}{
+				"what": "flower",
+			},
+		},
+		"global": map[string]interface{}{
+			"when": "to-day",
+		},
 	}
 
-	injValues := chart.Config{
-		Raw: `
-what: rosebuds
-herrick:
-  deepest:
-    what: flower
-global:
-  when: to-day`,
-	}
-
-	tmp, err := chartutil.CoalesceValues(outer, &injValues)
+	tmp, err := chartutil.CoalesceValues(outer, injValues)
 	if err != nil {
 		t.Fatalf("Failed to coalesce values: %s", err)
 	}
@@ -334,7 +376,7 @@ global:
 
 	t.Logf("Calculated values: %v", inject)
 
-	out, err := e.Render(outer, inject)
+	out, err := Render(outer, inject)
 	if err != nil {
 		t.Fatalf("failed to render templates: %s", err)
 	}
@@ -363,29 +405,26 @@ global:
 func TestRenderBuiltinValues(t *testing.T) {
 	inner := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "Latium"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/Lavinia", Data: []byte(`{{.Template.Name}}{{.Chart.Name}}{{.Release.Name}}`)},
 			{Name: "templates/From", Data: []byte(`{{.Files.author | printf "%s"}} {{.Files.Get "book/title.txt"}}`)},
 		},
-		Values:       &chart.Config{Raw: ``},
-		Dependencies: []*chart.Chart{},
-		Files: []*any.Any{
-			{TypeUrl: "author", Value: []byte("Virgil")},
-			{TypeUrl: "book/title.txt", Value: []byte("Aeneid")},
+		Files: []*chart.File{
+			{Name: "author", Data: []byte("Virgil")},
+			{Name: "book/title.txt", Data: []byte("Aeneid")},
 		},
 	}
 
 	outer := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "Troy"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/Aeneas", Data: []byte(`{{.Template.Name}}{{.Chart.Name}}{{.Release.Name}}`)},
 		},
-		Values:       &chart.Config{Raw: ``},
-		Dependencies: []*chart.Chart{inner},
 	}
+	outer.AddDependency(inner)
 
 	inject := chartutil.Values{
-		"Values": &chart.Config{Raw: ""},
+		"Values": "",
 		"Chart":  outer.Metadata,
 		"Release": chartutil.Values{
 			"Name": "Aeneid",
@@ -394,7 +433,7 @@ func TestRenderBuiltinValues(t *testing.T) {
 
 	t.Logf("Calculated values: %v", outer)
 
-	out, err := New().Render(outer, inject)
+	out, err := Render(outer, inject)
 	if err != nil {
 		t.Fatalf("failed to render templates: %s", err)
 	}
@@ -412,26 +451,24 @@ func TestRenderBuiltinValues(t *testing.T) {
 
 }
 
-func TestAlterFuncMap(t *testing.T) {
+func TestAlterFuncMap_include(t *testing.T) {
 	c := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "conrad"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/quote", Data: []byte(`{{include "conrad/templates/_partial" . | indent 2}} dead.`)},
 			{Name: "templates/_partial", Data: []byte(`{{.Release.Name}} - he`)},
 		},
-		Values:       &chart.Config{Raw: ``},
-		Dependencies: []*chart.Chart{},
 	}
 
 	v := chartutil.Values{
-		"Values": &chart.Config{Raw: ""},
+		"Values": "",
 		"Chart":  c.Metadata,
 		"Release": chartutil.Values{
 			"Name": "Mistah Kurtz",
 		},
 	}
 
-	out, err := New().Render(c, v)
+	out, err := Render(c, v)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,39 +477,40 @@ func TestAlterFuncMap(t *testing.T) {
 	if got := out["conrad/templates/quote"]; got != expect {
 		t.Errorf("Expected %q, got %q (%v)", expect, got, out)
 	}
+}
 
-	reqChart := &chart.Chart{
+func TestAlterFuncMap_require(t *testing.T) {
+	c := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "conan"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/quote", Data: []byte(`All your base are belong to {{ required "A valid 'who' is required" .Values.who }}`)},
 			{Name: "templates/bases", Data: []byte(`All {{ required "A valid 'bases' is required" .Values.bases }} of them!`)},
 		},
-		Values:       &chart.Config{Raw: ``},
-		Dependencies: []*chart.Chart{},
 	}
 
-	reqValues := chartutil.Values{
+	v := chartutil.Values{
 		"Values": chartutil.Values{
 			"who":   "us",
 			"bases": 2,
 		},
-		"Chart": reqChart.Metadata,
+		"Chart": c.Metadata,
 		"Release": chartutil.Values{
 			"Name": "That 90s meme",
 		},
 	}
 
-	outReq, err := New().Render(reqChart, reqValues)
+	out, err := Render(c, v)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	expectStr := "All your base are belong to us"
-	if gotStr := outReq["conan/templates/quote"]; gotStr != expectStr {
-		t.Errorf("Expected %q, got %q (%v)", expectStr, gotStr, outReq)
+	if gotStr := out["conan/templates/quote"]; gotStr != expectStr {
+		t.Errorf("Expected %q, got %q (%v)", expectStr, gotStr, out)
 	}
 	expectNum := "All 2 of them!"
-	if gotNum := outReq["conan/templates/bases"]; gotNum != expectNum {
-		t.Errorf("Expected %q, got %q (%v)", expectNum, gotNum, outReq)
+	if gotNum := out["conan/templates/bases"]; gotNum != expectNum {
+		t.Errorf("Expected %q, got %q (%v)", expectNum, gotNum, out)
 	}
 
 	// test required without passing in needed values with lint mode on
@@ -481,111 +519,112 @@ func TestAlterFuncMap(t *testing.T) {
 		"Values": chartutil.Values{
 			"who": "us",
 		},
-		"Chart": reqChart.Metadata,
+		"Chart": c.Metadata,
 		"Release": chartutil.Values{
 			"Name": "That 90s meme",
 		},
 	}
-	e := New()
+	var e Engine
 	e.LintMode = true
-	outReq, err = e.Render(reqChart, lintValues)
+	out, err = e.Render(c, lintValues)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	expectStr = "All your base are belong to us"
-	if gotStr := outReq["conan/templates/quote"]; gotStr != expectStr {
-		t.Errorf("Expected %q, got %q (%v)", expectStr, gotStr, outReq)
+	if gotStr := out["conan/templates/quote"]; gotStr != expectStr {
+		t.Errorf("Expected %q, got %q (%v)", expectStr, gotStr, out)
 	}
 	expectNum = "All  of them!"
-	if gotNum := outReq["conan/templates/bases"]; gotNum != expectNum {
-		t.Errorf("Expected %q, got %q (%v)", expectNum, gotNum, outReq)
+	if gotNum := out["conan/templates/bases"]; gotNum != expectNum {
+		t.Errorf("Expected %q, got %q (%v)", expectNum, gotNum, out)
 	}
+}
 
-	tplChart := &chart.Chart{
+func TestAlterFuncMap_tpl(t *testing.T) {
+	c := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "TplFunction"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/base", Data: []byte(`Evaluate tpl {{tpl "Value: {{ .Values.value}}" .}}`)},
 		},
-		Values:       &chart.Config{Raw: ``},
-		Dependencies: []*chart.Chart{},
 	}
 
-	tplValues := chartutil.Values{
+	v := chartutil.Values{
 		"Values": chartutil.Values{
 			"value": "myvalue",
 		},
-		"Chart": tplChart.Metadata,
+		"Chart": c.Metadata,
 		"Release": chartutil.Values{
 			"Name": "TestRelease",
 		},
 	}
 
-	outTpl, err := New().Render(tplChart, tplValues)
+	out, err := Render(c, v)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	expectTplStr := "Evaluate tpl Value: myvalue"
-	if gotStrTpl := outTpl["TplFunction/templates/base"]; gotStrTpl != expectTplStr {
-		t.Errorf("Expected %q, got %q (%v)", expectTplStr, gotStrTpl, outTpl)
+	expect := "Evaluate tpl Value: myvalue"
+	if got := out["TplFunction/templates/base"]; got != expect {
+		t.Errorf("Expected %q, got %q (%v)", expect, got, out)
 	}
+}
 
-	tplChartWithFunction := &chart.Chart{
+func TestAlterFuncMap_tplfunc(t *testing.T) {
+	c := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "TplFunction"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/base", Data: []byte(`Evaluate tpl {{tpl "Value: {{ .Values.value | quote}}" .}}`)},
 		},
-		Values:       &chart.Config{Raw: ``},
-		Dependencies: []*chart.Chart{},
 	}
 
-	tplValuesWithFunction := chartutil.Values{
+	v := chartutil.Values{
 		"Values": chartutil.Values{
 			"value": "myvalue",
 		},
-		"Chart": tplChartWithFunction.Metadata,
+		"Chart": c.Metadata,
 		"Release": chartutil.Values{
 			"Name": "TestRelease",
 		},
 	}
 
-	outTplWithFunction, err := New().Render(tplChartWithFunction, tplValuesWithFunction)
+	out, err := Render(c, v)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	expectTplStrWithFunction := "Evaluate tpl Value: \"myvalue\""
-	if gotStrTplWithFunction := outTplWithFunction["TplFunction/templates/base"]; gotStrTplWithFunction != expectTplStrWithFunction {
-		t.Errorf("Expected %q, got %q (%v)", expectTplStrWithFunction, gotStrTplWithFunction, outTplWithFunction)
+	expect := "Evaluate tpl Value: \"myvalue\""
+	if got := out["TplFunction/templates/base"]; got != expect {
+		t.Errorf("Expected %q, got %q (%v)", expect, got, out)
 	}
+}
 
-	tplChartWithInclude := &chart.Chart{
+func TestAlterFuncMap_tplinclude(t *testing.T) {
+	c := &chart.Chart{
 		Metadata: &chart.Metadata{Name: "TplFunction"},
-		Templates: []*chart.Template{
+		Templates: []*chart.File{
 			{Name: "templates/base", Data: []byte(`{{ tpl "{{include ` + "`" + `TplFunction/templates/_partial` + "`" + ` .  | quote }}" .}}`)},
 			{Name: "templates/_partial", Data: []byte(`{{.Template.Name}}`)},
 		},
-		Values:       &chart.Config{Raw: ``},
-		Dependencies: []*chart.Chart{},
 	}
-	tplValueWithInclude := chartutil.Values{
+	v := chartutil.Values{
 		"Values": chartutil.Values{
 			"value": "myvalue",
 		},
-		"Chart": tplChartWithInclude.Metadata,
+		"Chart": c.Metadata,
 		"Release": chartutil.Values{
 			"Name": "TestRelease",
 		},
 	}
 
-	outTplWithInclude, err := New().Render(tplChartWithInclude, tplValueWithInclude)
+	out, err := Render(c, v)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	expectedTplStrWithInclude := "\"TplFunction/templates/base\""
-	if gotStrTplWithInclude := outTplWithInclude["TplFunction/templates/base"]; gotStrTplWithInclude != expectedTplStrWithInclude {
-		t.Errorf("Expected %q, got %q (%v)", expectedTplStrWithInclude, gotStrTplWithInclude, outTplWithInclude)
+	expect := "\"TplFunction/templates/base\""
+	if got := out["TplFunction/templates/base"]; got != expect {
+		t.Errorf("Expected %q, got %q (%v)", expect, got, out)
 	}
 
 }

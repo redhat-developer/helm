@@ -17,36 +17,22 @@ limitations under the License.
 package main
 
 import (
-	"io"
 	"testing"
 
-	"github.com/spf13/cobra"
-
-	"k8s.io/helm/pkg/helm"
-	"k8s.io/helm/pkg/proto/hapi/release"
+	"helm.sh/helm/v3/pkg/release"
 )
 
 func TestGetNotesCmd(t *testing.T) {
-	tests := []releaseCase{
-		{
-			name:     "get notes of a deployed release",
-			args:     []string{"flummoxed-chickadee"},
-			expected: "NOTES:\nrelease notes\n",
-			rels: []*release.Release{
-				releaseMockWithStatus(&release.Status{
-					Code:  release.Status_DEPLOYED,
-					Notes: "release notes",
-				}),
-			},
-		},
-		{
-			name: "get notes requires release name arg",
-			err:  true,
-		},
-	}
-
-	runReleaseCases(t, tests, func(c *helm.FakeClient, out io.Writer) *cobra.Command {
-		return newGetNotesCmd(c, out)
-	})
-
+	tests := []cmdTestCase{{
+		name:   "get notes of a deployed release",
+		cmd:    "get notes the-limerick",
+		golden: "output/get-notes.txt",
+		rels:   []*release.Release{release.Mock(&release.MockReleaseOptions{Name: "the-limerick"})},
+	}, {
+		name:      "get notes without args",
+		cmd:       "get notes",
+		golden:    "output/get-notes-no-args.txt",
+		wantError: true,
+	}}
+	runTestCmd(t, tests)
 }

@@ -22,7 +22,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/helm"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/action"
 )
 
 const getHooksHelp = `
@@ -31,51 +32,27 @@ This command downloads hooks for a given release.
 Hooks are formatted in YAML and separated by the YAML '---\n' separator.
 `
 
-type getHooksCmd struct {
-	release string
-	out     io.Writer
-	client  helm.Interface
-	version int32
-}
+func newGetHooksCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	client := action.NewGet(cfg)
 
-func newGetHooksCmd(client helm.Interface, out io.Writer) *cobra.Command {
-	ghc := &getHooksCmd{
-		out:    out,
-		client: client,
-	}
 	cmd := &cobra.Command{
-		Use:     "hooks [flags] RELEASE_NAME",
-		Short:   "Download all hooks for a named release",
-		Long:    getHooksHelp,
-		PreRunE: func(_ *cobra.Command, _ []string) error { return setupConnection() },
+		Use:   "hooks RELEASE_NAME",
+		Short: "download all hooks for a named release",
+		Long:  getHooksHelp,
+		Args:  require.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return errReleaseRequired
+			res, err := client.Run(args[0])
+			if err != nil {
+				return err
 			}
-			ghc.release = args[0]
-			ghc.client = ensureHelmClient(ghc.client)
-			return ghc.run()
+			for _, hook := range res.Hooks {
+				fmt.Fprintf(out, "---\n# Source: %s\n%s\n", hook.Path, hook.Manifest)
+			}
+			return nil
 		},
 	}
-	f := cmd.Flags()
-	settings.AddFlagsTLS(f)
-	f.Int32Var(&ghc.version, "revision", 0, "Get the named release with revision")
 
-	// set defaults from environment
-	settings.InitTLS(f)
+	cmd.Flags().IntVar(&client.Version, "revision", 0, "get the named release with revision")
 
 	return cmd
-}
-
-func (g *getHooksCmd) run() error {
-	res, err := g.client.ReleaseContent(g.release, helm.ContentReleaseVersion(g.version))
-	if err != nil {
-		fmt.Fprintln(g.out, g.release)
-		return prettyError(err)
-	}
-
-	for _, hook := range res.Release.Hooks {
-		fmt.Fprintf(g.out, "---\n# %s\n%s\n", hook.Name, hook.Manifest)
-	}
-	return nil
 }

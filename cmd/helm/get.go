@@ -17,85 +17,37 @@ limitations under the License.
 package main
 
 import (
-	"errors"
 	"io"
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/helm"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/action"
 )
 
 var getHelp = `
-This command shows the details of a named release.
+This command consists of multiple subcommands which can be used to
+get extended information about the release, including:
 
-It can be used to get extended information about the release, including:
-
-  - The values used to generate the release
-  - The chart used to generate the release
-  - The generated manifest file
-
-By default, this prints a human readable collection of information about the
-chart, the supplied values, and the generated manifest file.
+- The values used to generate the release
+- The generated manifest file
+- The notes provided by the chart of the release
+- The hooks associated with the release
 `
 
-var errReleaseRequired = errors.New("release name is required")
-
-type getCmd struct {
-	release  string
-	out      io.Writer
-	client   helm.Interface
-	version  int32
-	template string
-}
-
-func newGetCmd(client helm.Interface, out io.Writer) *cobra.Command {
-	get := &getCmd{
-		out:    out,
-		client: client,
-	}
-
+func newGetCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "get [flags] RELEASE_NAME",
-		Short:   "Download a named release",
-		Long:    getHelp,
-		PreRunE: func(_ *cobra.Command, _ []string) error { return setupConnection() },
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return errReleaseRequired
-			}
-			get.release = args[0]
-			if get.client == nil {
-				get.client = newClient()
-			}
-			return get.run()
-		},
+		Use:   "get",
+		Short: "download extended information of a named release",
+		Long:  getHelp,
+		Args:  require.NoArgs,
 	}
 
-	f := cmd.Flags()
-	settings.AddFlagsTLS(f)
-	f.Int32Var(&get.version, "revision", 0, "Get the named release with revision")
-	f.StringVar(&get.template, "template", "", "Go template for formatting the output, eg: {{.Release.Name}}")
-
-	cmd.AddCommand(newGetValuesCmd(nil, out))
-	cmd.AddCommand(newGetManifestCmd(nil, out))
-	cmd.AddCommand(newGetHooksCmd(nil, out))
-	cmd.AddCommand(newGetNotesCmd(nil, out))
-
-	// set defaults from environment
-	settings.InitTLS(f)
+	cmd.AddCommand(newGetAllCmd(cfg, out))
+	cmd.AddCommand(newGetValuesCmd(cfg, out))
+	cmd.AddCommand(newGetManifestCmd(cfg, out))
+	cmd.AddCommand(newGetHooksCmd(cfg, out))
+	cmd.AddCommand(newGetNotesCmd(cfg, out))
 
 	return cmd
-}
-
-// getCmd is the command that implements 'helm get'
-func (g *getCmd) run() error {
-	res, err := g.client.ReleaseContent(g.release, helm.ContentReleaseVersion(g.version))
-	if err != nil {
-		return prettyError(err)
-	}
-
-	if g.template != "" {
-		return tpl(g.template, res, g.out)
-	}
-	return printRelease(g.out, res.Release)
 }

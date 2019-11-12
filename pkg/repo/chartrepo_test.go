@@ -17,6 +17,7 @@ limitations under the License.
 package repo
 
 import (
+	"bytes"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -27,9 +28,12 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/helm/pkg/getter"
-	"k8s.io/helm/pkg/helm/environment"
-	"k8s.io/helm/pkg/proto/hapi/chart"
+	"sigs.k8s.io/yaml"
+
+	"helm.sh/helm/v3/internal/test/ensure"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/getter"
 )
 
 const (
@@ -41,7 +45,7 @@ func TestLoadChartRepository(t *testing.T) {
 	r, err := NewChartRepository(&Entry{
 		Name: testRepository,
 		URL:  testURL,
-	}, getter.All(environment.EnvSettings{}))
+	}, getter.All(&cli.EnvSettings{}))
 	if err != nil {
 		t.Errorf("Problem creating chart repository from %s: %v", testRepository, err)
 	}
@@ -74,7 +78,7 @@ func TestIndex(t *testing.T) {
 	r, err := NewChartRepository(&Entry{
 		Name: testRepository,
 		URL:  testURL,
-	}, getter.All(environment.EnvSettings{}))
+	}, getter.All(&cli.EnvSettings{}))
 	if err != nil {
 		t.Errorf("Problem creating chart repository from %s: %v", testRepository, err)
 	}
@@ -106,6 +110,64 @@ func TestIndex(t *testing.T) {
 		t.Errorf("Error re-loading index file %v", err)
 	}
 	verifyIndex(t, second)
+}
+
+type CustomGetter struct {
+	repoUrls []string
+}
+
+func (g *CustomGetter) Get(href string, options ...getter.Option) (*bytes.Buffer, error) {
+	index := &IndexFile{
+		APIVersion: "v1",
+		Generated:  time.Now(),
+	}
+	indexBytes, err := yaml.Marshal(index)
+	if err != nil {
+		return nil, err
+	}
+	g.repoUrls = append(g.repoUrls, href)
+	return bytes.NewBuffer(indexBytes), nil
+}
+
+func TestIndexCustomSchemeDownload(t *testing.T) {
+	repoName := "gcs-repo"
+	repoURL := "gs://some-gcs-bucket"
+	myCustomGetter := &CustomGetter{}
+	customGetterConstructor := func(options ...getter.Option) (getter.Getter, error) {
+		return myCustomGetter, nil
+	}
+	providers := getter.Providers{{
+		Schemes: []string{"gs"},
+		New:     customGetterConstructor,
+	}}
+	repo, err := NewChartRepository(&Entry{
+		Name: repoName,
+		URL:  repoURL,
+	}, providers)
+	if err != nil {
+		t.Fatalf("Problem loading chart repository from %s: %v", repoURL, err)
+	}
+	repo.CachePath = ensure.TempDir(t)
+
+	tempIndexFile, err := ioutil.TempFile("", "test-repo")
+	if err != nil {
+		t.Fatalf("Failed to create temp index file: %v", err)
+	}
+	defer os.Remove(tempIndexFile.Name())
+
+	idx, err := repo.DownloadIndexFile()
+	if err != nil {
+		t.Fatalf("Failed to download index file to %s: %v", idx, err)
+	}
+
+	if len(myCustomGetter.repoUrls) != 1 {
+		t.Fatalf("Custom Getter.Get should be called once")
+	}
+
+	expectedRepoIndexURL := repoURL + "/index.yaml"
+	if myCustomGetter.repoUrls[0] != expectedRepoIndexURL {
+		t.Fatalf("Custom Getter.Get should be called with %s", expectedRepoIndexURL)
+	}
 }
 
 func verifyIndex(t *testing.T, actual *IndexFile) {
@@ -175,7 +237,7 @@ func verifyIndex(t *testing.T, actual *IndexFile) {
 				t.Errorf("Expected %q, got %q", e.Version, g.Version)
 			}
 			if len(g.Keywords) != 3 {
-				t.Error("Expected 3 keywords.")
+				t.Error("Expected 3 keyrwords.")
 			}
 			if len(g.Maintainers) != 2 {
 				t.Error("Expected 2 maintainers.")
@@ -221,15 +283,15 @@ func TestFindChartInRepoURL(t *testing.T) {
 	}
 	defer srv.Close()
 
-	chartURL, err := FindChartInRepoURL(srv.URL, "nginx", "", "", "", "", getter.All(environment.EnvSettings{}))
+	chartURL, err := FindChartInRepoURL(srv.URL, "nginx", "", "", "", "", getter.All(&cli.EnvSettings{}))
 	if err != nil {
-		t.Errorf("%s", err)
+		t.Fatalf("%v", err)
 	}
 	if chartURL != "https://kubernetes-charts.storage.googleapis.com/nginx-0.2.0.tgz" {
 		t.Errorf("%s is not the valid URL", chartURL)
 	}
 
-	chartURL, err = FindChartInRepoURL(srv.URL, "nginx", "0.1.0", "", "", "", getter.All(environment.EnvSettings{}))
+	chartURL, err = FindChartInRepoURL(srv.URL, "nginx", "0.1.0", "", "", "", getter.All(&cli.EnvSettings{}))
 	if err != nil {
 		t.Errorf("%s", err)
 	}
@@ -239,11 +301,14 @@ func TestFindChartInRepoURL(t *testing.T) {
 }
 
 func TestErrorFindChartInRepoURL(t *testing.T) {
-	_, err := FindChartInRepoURL("http://someserver/something", "nginx", "", "", "", "", getter.All(environment.EnvSettings{}))
-	if err == nil {
+
+	g := getter.All(&cli.EnvSettings{
+		RepositoryCache: ensure.TempDir(t),
+	})
+
+	if _, err := FindChartInRepoURL("http://someserver/something", "nginx", "", "", "", "", g); err == nil {
 		t.Errorf("Expected error for bad chart URL, but did not get any errors")
-	}
-	if err != nil && !strings.Contains(err.Error(), `Looks like "http://someserver/something" is not a valid chart repository or cannot be reached: Get http://someserver/something/index.yaml`) {
+	} else if !strings.Contains(err.Error(), `looks like "http://someserver/something" is not a valid chart repository or cannot be reached: Get http://someserver/something/index.yaml`) {
 		t.Errorf("Expected error for bad chart URL, but got a different error (%v)", err)
 	}
 
@@ -253,27 +318,21 @@ func TestErrorFindChartInRepoURL(t *testing.T) {
 	}
 	defer srv.Close()
 
-	_, err = FindChartInRepoURL(srv.URL, "nginx1", "", "", "", "", getter.All(environment.EnvSettings{}))
-	if err == nil {
+	if _, err = FindChartInRepoURL(srv.URL, "nginx1", "", "", "", "", g); err == nil {
 		t.Errorf("Expected error for chart not found, but did not get any errors")
-	}
-	if err != nil && err.Error() != `chart "nginx1" not found in `+srv.URL+` repository` {
+	} else if err.Error() != `chart "nginx1" not found in `+srv.URL+` repository` {
 		t.Errorf("Expected error for chart not found, but got a different error (%v)", err)
 	}
 
-	_, err = FindChartInRepoURL(srv.URL, "nginx1", "0.1.0", "", "", "", getter.All(environment.EnvSettings{}))
-	if err == nil {
+	if _, err = FindChartInRepoURL(srv.URL, "nginx1", "0.1.0", "", "", "", g); err == nil {
 		t.Errorf("Expected error for chart not found, but did not get any errors")
-	}
-	if err != nil && err.Error() != `chart "nginx1" version "0.1.0" not found in `+srv.URL+` repository` {
+	} else if err.Error() != `chart "nginx1" version "0.1.0" not found in `+srv.URL+` repository` {
 		t.Errorf("Expected error for chart not found, but got a different error (%v)", err)
 	}
 
-	_, err = FindChartInRepoURL(srv.URL, "chartWithNoURL", "", "", "", "", getter.All(environment.EnvSettings{}))
-	if err == nil {
+	if _, err = FindChartInRepoURL(srv.URL, "chartWithNoURL", "", "", "", "", g); err == nil {
 		t.Errorf("Expected error for no chart URLs available, but did not get any errors")
-	}
-	if err != nil && err.Error() != `chart "chartWithNoURL" has no downloadable URLs` {
+	} else if err.Error() != `chart "chartWithNoURL" has no downloadable URLs` {
 		t.Errorf("Expected error for chart not found, but got a different error (%v)", err)
 	}
 }
@@ -287,20 +346,12 @@ func TestResolveReferenceURL(t *testing.T) {
 		t.Errorf("%s", chartURL)
 	}
 
-	chartURL, err = ResolveReferenceURL("http://localhost:8123/charts", "nginx-0.2.0.tgz")
+	chartURL, err = ResolveReferenceURL("http://localhost:8123/charts-with-no-trailing-slash", "nginx-0.2.0.tgz")
 	if err != nil {
 		t.Errorf("%s", err)
 	}
-	if chartURL != "http://localhost:8123/charts/nginx-0.2.0.tgz" {
+	if chartURL != "http://localhost:8123/charts-with-no-trailing-slash/nginx-0.2.0.tgz" {
 		t.Errorf("%s", chartURL)
-	}
-
-	chartURL, err = ResolveReferenceURL("http://localhost:8123/charts/?st=2018-08-06T22%3A59%3A04Z&se=2018-08-07T22%3A59%3A04Z&sp=rl&sv=2018-03-28&sr=c&sig=cyqM4%2F5G7HNk%2F3faaHSDMaWxFxefCglvZlYSnmQBwiY%3D", "nginx-0.2.0.tgz")
-	if err != nil {
-		t.Errorf("%s", err)
-	}
-	if chartURL != "http://localhost:8123/charts/nginx-0.2.0.tgz?st=2018-08-06T22%3A59%3A04Z&se=2018-08-07T22%3A59%3A04Z&sp=rl&sv=2018-03-28&sr=c&sig=cyqM4%2F5G7HNk%2F3faaHSDMaWxFxefCglvZlYSnmQBwiY%3D" {
-		t.Errorf("%s does not contain the query string of the base URL", chartURL)
 	}
 
 	chartURL, err = ResolveReferenceURL("http://localhost:8123", "https://kubernetes-charts.storage.googleapis.com/nginx-0.2.0.tgz")
@@ -309,13 +360,5 @@ func TestResolveReferenceURL(t *testing.T) {
 	}
 	if chartURL != "https://kubernetes-charts.storage.googleapis.com/nginx-0.2.0.tgz" {
 		t.Errorf("%s", chartURL)
-	}
-
-	chartURL, err = ResolveReferenceURL("http://localhost:8123/?querystring", "https://kubernetes-charts.storage.googleapis.com/nginx-0.2.0.tgz")
-	if err != nil {
-		t.Errorf("%s", err)
-	}
-	if chartURL != "https://kubernetes-charts.storage.googleapis.com/nginx-0.2.0.tgz" {
-		t.Errorf("%s contains query string from base URL when it shouldn't", chartURL)
 	}
 }

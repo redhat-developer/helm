@@ -17,18 +17,22 @@ limitations under the License.
 package chartutil
 
 import (
-	"errors"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/pkg/errors"
+	"sigs.k8s.io/yaml"
+
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chart/loader"
 )
 
 // Expand uncompresses and extracts a chart into the specified directory.
 func Expand(dir string, r io.Reader) error {
-	files, err := loadArchiveFiles(r)
+	files, err := loader.LoadArchiveFiles(r)
 	if err != nil {
 		return err
 	}
@@ -37,11 +41,11 @@ func Expand(dir string, r io.Reader) error {
 	var chartName string
 	for _, file := range files {
 		if file.Name == "Chart.yaml" {
-			ch, err := UnmarshalChartfile(file.Data)
-			if err != nil {
-				return err
+			ch := &chart.Metadata{}
+			if err := yaml.Unmarshal(file.Data, ch); err != nil {
+				return errors.Wrap(err, "cannot load Chart.yaml")
 			}
-			chartName = ch.GetName()
+			chartName = ch.Name
 		}
 	}
 	if chartName == "" {
@@ -72,6 +76,7 @@ func Expand(dir string, r io.Reader) error {
 			return err
 		}
 	}
+
 	return nil
 }
 

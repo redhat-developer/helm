@@ -17,65 +17,38 @@ limitations under the License.
 package main
 
 import (
-	"io"
 	"testing"
 
-	"github.com/spf13/cobra"
-
-	"k8s.io/helm/pkg/helm"
-	"k8s.io/helm/pkg/proto/hapi/chart"
-	"k8s.io/helm/pkg/proto/hapi/release"
+	"helm.sh/helm/v3/pkg/release"
 )
 
 func TestGetValuesCmd(t *testing.T) {
-	releaseWithValues := helm.ReleaseMock(&helm.MockReleaseOptions{
-		Name: "thomas-guide",
-		Chart: &chart.Chart{
-			Metadata: &chart.Metadata{Name: "thomas-guide-chart-name"},
-			Values:   &chart.Config{Raw: `foo2: "bar2"`},
-		},
-		Config: &chart.Config{Raw: `foo: "bar"`},
-	})
-
-	tests := []releaseCase{
-		{
-			name:     "get values with a release",
-			resp:     helm.ReleaseMock(&helm.MockReleaseOptions{Name: "thomas-guide"}),
-			args:     []string{"thomas-guide"},
-			expected: "name: value",
-			rels:     []*release.Release{helm.ReleaseMock(&helm.MockReleaseOptions{Name: "thomas-guide"})},
-		},
-		{
-			name:     "get values with json format",
-			resp:     releaseWithValues,
-			args:     []string{"thomas-guide"},
-			flags:    []string{"--output", "json"},
-			expected: "{\"foo\":\"bar\"}",
-			rels:     []*release.Release{releaseWithValues},
-		},
-		{
-			name:     "get all values with json format",
-			resp:     releaseWithValues,
-			args:     []string{"thomas-guide"},
-			flags:    []string{"--all", "--output", "json"},
-			expected: "{\"foo\":\"bar\",\"foo2\":\"bar2\"}",
-			rels:     []*release.Release{releaseWithValues},
-		},
-		{
-			name: "get values requires release name arg",
-			err:  true,
-		},
-		{
-			name:  "get values with invalid output format",
-			resp:  releaseWithValues,
-			args:  []string{"thomas-guide"},
-			flags: []string{"--output", "INVALID_FORMAT"},
-			rels:  []*release.Release{releaseWithValues},
-			err:   true,
-		},
-	}
-	cmd := func(c *helm.FakeClient, out io.Writer) *cobra.Command {
-		return newGetValuesCmd(c, out)
-	}
-	runReleaseCases(t, tests, cmd)
+	tests := []cmdTestCase{{
+		name:   "get values with a release",
+		cmd:    "get values thomas-guide",
+		golden: "output/get-values.txt",
+		rels:   []*release.Release{release.Mock(&release.MockReleaseOptions{Name: "thomas-guide"})},
+	}, {
+		name:      "get values requires release name arg",
+		cmd:       "get values",
+		golden:    "output/get-values-args.txt",
+		rels:      []*release.Release{release.Mock(&release.MockReleaseOptions{Name: "thomas-guide"})},
+		wantError: true,
+	}, {
+		name:   "get values thomas-guide (all)",
+		cmd:    "get values thomas-guide --all",
+		golden: "output/get-values-all.txt",
+		rels:   []*release.Release{release.Mock(&release.MockReleaseOptions{Name: "thomas-guide"})},
+	}, {
+		name:   "get values to json",
+		cmd:    "get values thomas-guide --output json",
+		golden: "output/values.json",
+		rels:   []*release.Release{release.Mock(&release.MockReleaseOptions{Name: "thomas-guide"})},
+	}, {
+		name:   "get values to yaml",
+		cmd:    "get values thomas-guide --output yaml",
+		golden: "output/values.yaml",
+		rels:   []*release.Release{release.Mock(&release.MockReleaseOptions{Name: "thomas-guide"})},
+	}}
+	runTestCmd(t, tests)
 }

@@ -14,58 +14,45 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package driver // import "k8s.io/helm/pkg/storage/driver"
+package driver // import "helm.sh/helm/v3/pkg/storage/driver"
 
 import (
 	"fmt"
 	"testing"
 
-	sqlmock "github.com/DATA-DOG/go-sqlmock"
-	"github.com/jmoiron/sqlx"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
-	rspb "k8s.io/helm/pkg/proto/hapi/release"
+	rspb "helm.sh/helm/v3/pkg/release"
 )
 
-func releaseStub(name string, vers int32, namespace string, code rspb.Status_Code) *rspb.Release {
+func releaseStub(name string, vers int, namespace string, status rspb.Status) *rspb.Release {
 	return &rspb.Release{
 		Name:      name,
 		Version:   vers,
 		Namespace: namespace,
-		Info:      &rspb.Info{Status: &rspb.Status{Code: code}},
+		Info:      &rspb.Info{Status: status},
 	}
 }
 
-func shallowReleaseEqual(r1 *rspb.Release, r2 *rspb.Release) bool {
-	if r1.Name != r2.Name ||
-		r1.Namespace != r2.Namespace ||
-		r1.Version != r2.Version ||
-		r1.Manifest != r2.Manifest {
-		return false
-	}
-	return true
-}
-
-func testKey(name string, vers int32) string {
+func testKey(name string, vers int) string {
 	return fmt.Sprintf("%s.v%d", name, vers)
 }
 
 func tsFixtureMemory(t *testing.T) *Memory {
 	hs := []*rspb.Release{
 		// rls-a
-		releaseStub("rls-a", 4, "default", rspb.Status_DEPLOYED),
-		releaseStub("rls-a", 1, "default", rspb.Status_SUPERSEDED),
-		releaseStub("rls-a", 3, "default", rspb.Status_SUPERSEDED),
-		releaseStub("rls-a", 2, "default", rspb.Status_SUPERSEDED),
+		releaseStub("rls-a", 4, "default", rspb.StatusDeployed),
+		releaseStub("rls-a", 1, "default", rspb.StatusSuperseded),
+		releaseStub("rls-a", 3, "default", rspb.StatusSuperseded),
+		releaseStub("rls-a", 2, "default", rspb.StatusSuperseded),
 		// rls-b
-		releaseStub("rls-b", 4, "default", rspb.Status_DEPLOYED),
-		releaseStub("rls-b", 1, "default", rspb.Status_SUPERSEDED),
-		releaseStub("rls-b", 3, "default", rspb.Status_SUPERSEDED),
-		releaseStub("rls-b", 2, "default", rspb.Status_SUPERSEDED),
+		releaseStub("rls-b", 4, "default", rspb.StatusDeployed),
+		releaseStub("rls-b", 1, "default", rspb.StatusSuperseded),
+		releaseStub("rls-b", 3, "default", rspb.StatusSuperseded),
+		releaseStub("rls-b", 2, "default", rspb.StatusSuperseded),
 	}
 
 	mem := NewMemory()
@@ -113,7 +100,7 @@ func (mock *MockConfigMapsInterface) Init(t *testing.T, releases ...*rspb.Releas
 func (mock *MockConfigMapsInterface) Get(name string, options metav1.GetOptions) (*v1.ConfigMap, error) {
 	object, ok := mock.objects[name]
 	if !ok {
-		return nil, apierrors.NewNotFound(schema.GroupResource{Resource: "tests"}, name)
+		return nil, apierrors.NewNotFound(v1.Resource("tests"), name)
 	}
 	return object, nil
 }
@@ -131,7 +118,7 @@ func (mock *MockConfigMapsInterface) List(opts metav1.ListOptions) (*v1.ConfigMa
 func (mock *MockConfigMapsInterface) Create(cfgmap *v1.ConfigMap) (*v1.ConfigMap, error) {
 	name := cfgmap.ObjectMeta.Name
 	if object, ok := mock.objects[name]; ok {
-		return object, apierrors.NewAlreadyExists(schema.GroupResource{Resource: "tests"}, name)
+		return object, apierrors.NewAlreadyExists(v1.Resource("tests"), name)
 	}
 	mock.objects[name] = cfgmap
 	return cfgmap, nil
@@ -191,7 +178,7 @@ func (mock *MockSecretsInterface) Init(t *testing.T, releases ...*rspb.Release) 
 func (mock *MockSecretsInterface) Get(name string, options metav1.GetOptions) (*v1.Secret, error) {
 	object, ok := mock.objects[name]
 	if !ok {
-		return nil, apierrors.NewNotFound(schema.GroupResource{Resource: "tests"}, name)
+		return nil, apierrors.NewNotFound(v1.Resource("tests"), name)
 	}
 	return object, nil
 }
@@ -209,7 +196,7 @@ func (mock *MockSecretsInterface) List(opts metav1.ListOptions) (*v1.SecretList,
 func (mock *MockSecretsInterface) Create(secret *v1.Secret) (*v1.Secret, error) {
 	name := secret.ObjectMeta.Name
 	if object, ok := mock.objects[name]; ok {
-		return object, apierrors.NewAlreadyExists(schema.GroupResource{Resource: "tests"}, name)
+		return object, apierrors.NewAlreadyExists(v1.Resource("tests"), name)
 	}
 	mock.objects[name] = secret
 	return secret, nil
@@ -219,7 +206,7 @@ func (mock *MockSecretsInterface) Create(secret *v1.Secret) (*v1.Secret, error) 
 func (mock *MockSecretsInterface) Update(secret *v1.Secret) (*v1.Secret, error) {
 	name := secret.ObjectMeta.Name
 	if _, ok := mock.objects[name]; !ok {
-		return nil, apierrors.NewNotFound(schema.GroupResource{Resource: "tests"}, name)
+		return nil, apierrors.NewNotFound(v1.Resource("tests"), name)
 	}
 	mock.objects[name] = secret
 	return secret, nil
@@ -228,22 +215,8 @@ func (mock *MockSecretsInterface) Update(secret *v1.Secret) (*v1.Secret, error) 
 // Delete deletes a Secret by name.
 func (mock *MockSecretsInterface) Delete(name string, opts *metav1.DeleteOptions) error {
 	if _, ok := mock.objects[name]; !ok {
-		return apierrors.NewNotFound(schema.GroupResource{Resource: "tests"}, name)
+		return apierrors.NewNotFound(v1.Resource("tests"), name)
 	}
 	delete(mock.objects, name)
 	return nil
-}
-
-// newTestFixtureSQL mocks the SQL database (for testing purposes)
-func newTestFixtureSQL(t *testing.T, releases ...*rspb.Release) (*SQL, sqlmock.Sqlmock) {
-	sqlDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("error when opening stub database connection: %v", err)
-	}
-
-	sqlxDB := sqlx.NewDb(sqlDB, "sqlmock")
-	return &SQL{
-		db:  sqlxDB,
-		Log: func(_ string, _ ...interface{}) {},
-	}, mock
 }

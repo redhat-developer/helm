@@ -20,13 +20,13 @@ import (
 )
 
 func TestVersionSet(t *testing.T) {
-	vs := NewVersionSet("v1", "extensions/v1beta1")
+	vs := VersionSet{"v1", "apps/v1"}
 	if d := len(vs); d != 2 {
 		t.Errorf("Expected 2 versions, got %d", d)
 	}
 
-	if !vs.Has("extensions/v1beta1") {
-		t.Error("Expected to find extensions/v1beta1")
+	if !vs.Has("apps/v1") {
+		t.Error("Expected to find apps/v1")
 	}
 
 	if vs.Has("Spanish/inquisition") {
@@ -40,13 +40,22 @@ func TestDefaultVersionSet(t *testing.T) {
 	}
 }
 
-func TestCapabilities(t *testing.T) {
-	cap := Capabilities{
-		APIVersions: DefaultVersionSet,
+func TestDefaultCapabilities(t *testing.T) {
+	kv := DefaultCapabilities.KubeVersion
+	if kv.String() != "v1.16.0" {
+		t.Errorf("Expected default KubeVersion.String() to be v1.16.0, got %q", kv.String())
 	}
-
-	if !cap.APIVersions.Has("v1") {
-		t.Error("APIVersions should have v1")
+	if kv.Version != "v1.16.0" {
+		t.Errorf("Expected default KubeVersion.Version to be v1.16.0, got %q", kv.Version)
+	}
+	if kv.GitVersion() != "v1.16.0" {
+		t.Errorf("Expected default KubeVersion.GitVersion() to be v1.16.0, got %q", kv.Version)
+	}
+	if kv.Major != "1" {
+		t.Errorf("Expected default KubeVersion.Major to be 1, got %q", kv.Major)
+	}
+	if kv.Minor != "16" {
+		t.Errorf("Expected default KubeVersion.Minor to be 16, got %q", kv.Minor)
 	}
 
 	if !cap.APIVersions.Has("apps/v1/Deployment") {

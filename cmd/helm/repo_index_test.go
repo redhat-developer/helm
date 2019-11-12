@@ -19,21 +19,17 @@ package main
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"k8s.io/helm/pkg/repo"
+	"helm.sh/helm/v3/internal/test/ensure"
+	"helm.sh/helm/v3/pkg/repo"
 )
 
 func TestRepoIndexCmd(t *testing.T) {
 
-	dir, err := ioutil.TempDir("", "helm-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
+	dir := ensure.TempDir(t)
 
 	comp := filepath.Join(dir, "compressedchart-0.1.0.tgz")
 	if err := linkOrCopy("testdata/testcharts/compressedchart-0.1.0.tgz", comp); err != nil {

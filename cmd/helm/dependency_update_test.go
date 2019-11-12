@@ -16,69 +16,60 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/ghodss/yaml"
-
-	"k8s.io/helm/pkg/chartutil"
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/proto/hapi/chart"
-	"k8s.io/helm/pkg/provenance"
-	"k8s.io/helm/pkg/repo"
-	"k8s.io/helm/pkg/repo/repotest"
+	"helm.sh/helm/v3/internal/test/ensure"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chartutil"
+	"helm.sh/helm/v3/pkg/helmpath"
+	"helm.sh/helm/v3/pkg/provenance"
+	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/repo/repotest"
 )
 
 func TestDependencyUpdateCmd(t *testing.T) {
-	hh, err := tempHelmHome(t)
+	srv, err := repotest.NewTempServer("testdata/testcharts/*.tgz")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cleanup := resetEnv()
-	defer func() {
-		os.RemoveAll(hh.String())
-		cleanup()
-	}()
-
-	settings.Home = hh
-
-	srv := repotest.NewServer(hh.String())
 	defer srv.Stop()
-	copied, err := srv.CopyCharts("testdata/testcharts/*.tgz")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("Copied charts:\n%s", strings.Join(copied, "\n"))
 	t.Logf("Listening on directory %s", srv.Root())
 
+	if err := srv.LinkIndices(); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := func(p ...string) string {
+		return filepath.Join(append([]string{srv.Root()}, p...)...)
+	}
+
 	chartname := "depup"
-	if err := createTestingChart(hh.String(), chartname, srv.URL()); err != nil {
+	ch := createTestingMetadata(chartname, srv.URL())
+	md := ch.Metadata
+	if err := chartutil.SaveDir(ch, dir()); err != nil {
 		t.Fatal(err)
 	}
 
-	out := bytes.NewBuffer(nil)
-	duc := &dependencyUpdateCmd{out: out}
-	duc.helmhome = helmpath.Home(hh)
-	duc.chartpath = filepath.Join(hh.String(), chartname)
-
-	if err := duc.run(); err != nil {
-		output := out.String()
-		t.Logf("Output: %s", output)
+	_, out, err := executeActionCommand(
+		fmt.Sprintf("dependency update '%s' --repository-config %s --repository-cache %s", dir(chartname), dir("repositories.yaml"), dir()),
+	)
+	if err != nil {
+		t.Logf("Output: %s", out)
 		t.Fatal(err)
 	}
 
-	output := out.String()
 	// This is written directly to stdout, so we have to capture as is.
-	if !strings.Contains(output, `update from the "test" chart repository`) {
-		t.Errorf("Repo did not get updated\n%s", output)
+	if !strings.Contains(out, `update from the "test" chart repository`) {
+		t.Errorf("Repo did not get updated\n%s", out)
 	}
 
 	// Make sure the actual file got downloaded.
-	expect := filepath.Join(hh.String(), chartname, "charts/reqtest-0.1.0.tgz")
+	expect := dir(chartname, "charts/reqtest-0.1.0.tgz")
 	if _, err := os.Stat(expect); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +79,7 @@ func TestDependencyUpdateCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	i, err := repo.LoadIndexFile(duc.helmhome.CacheIndex("test"))
+	i, err := repo.LoadIndexFile(dir(helmpath.CacheIndexFile("test")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,112 +91,56 @@ func TestDependencyUpdateCmd(t *testing.T) {
 
 	// Now change the dependencies and update. This verifies that on update,
 	// old dependencies are cleansed and new dependencies are added.
-	reqfile := &chartutil.Requirements{
-		Dependencies: []*chartutil.Dependency{
-			{Name: "reqtest", Version: "0.1.0", Repository: srv.URL()},
-			{Name: "compressedchart", Version: "0.3.0", Repository: srv.URL()},
-		},
+	md.Dependencies = []*chart.Dependency{
+		{Name: "reqtest", Version: "0.1.0", Repository: srv.URL()},
+		{Name: "compressedchart", Version: "0.3.0", Repository: srv.URL()},
 	}
-	dir := filepath.Join(hh.String(), chartname)
-	if err := writeRequirements(dir, reqfile); err != nil {
+	if err := chartutil.SaveChartfile(dir(chartname, "Chart.yaml"), md); err != nil {
 		t.Fatal(err)
 	}
-	if err := duc.run(); err != nil {
-		output := out.String()
-		t.Logf("Output: %s", output)
+
+	_, out, err = executeActionCommand(fmt.Sprintf("dependency update '%s' --repository-config %s --repository-cache %s", dir(chartname), dir("repositories.yaml"), dir()))
+	if err != nil {
+		t.Logf("Output: %s", out)
 		t.Fatal(err)
 	}
 
 	// In this second run, we should see compressedchart-0.3.0.tgz, and not
 	// the 0.1.0 version.
-	expect = filepath.Join(hh.String(), chartname, "charts/compressedchart-0.3.0.tgz")
+	expect = dir(chartname, "charts/compressedchart-0.3.0.tgz")
 	if _, err := os.Stat(expect); err != nil {
 		t.Fatalf("Expected %q: %s", expect, err)
 	}
-	dontExpect := filepath.Join(hh.String(), chartname, "charts/compressedchart-0.1.0.tgz")
+	dontExpect := dir(chartname, "charts/compressedchart-0.1.0.tgz")
 	if _, err := os.Stat(dontExpect); err == nil {
 		t.Fatalf("Unexpected %q", dontExpect)
 	}
 }
 
-func TestDependencyUpdateCmd_SkipRefresh(t *testing.T) {
-	hh, err := tempHelmHome(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cleanup := resetEnv()
-	defer func() {
-		os.RemoveAll(hh.String())
-		cleanup()
-	}()
-
-	settings.Home = hh
-
-	srv := repotest.NewServer(hh.String())
-	defer srv.Stop()
-	copied, err := srv.CopyCharts("testdata/testcharts/*.tgz")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("Copied charts:\n%s", strings.Join(copied, "\n"))
-	t.Logf("Listening on directory %s", srv.Root())
-
-	chartname := "depup"
-	if err := createTestingChart(hh.String(), chartname, srv.URL()); err != nil {
-		t.Fatal(err)
-	}
-
-	out := bytes.NewBuffer(nil)
-	duc := &dependencyUpdateCmd{out: out}
-	duc.helmhome = helmpath.Home(hh)
-	duc.chartpath = filepath.Join(hh.String(), chartname)
-	duc.skipRefresh = true
-
-	if err := duc.run(); err == nil {
-		t.Fatal("Expected failure to find the repo with skipRefresh")
-	}
-
-	output := out.String()
-	// This is written directly to stdout, so we have to capture as is.
-	if strings.Contains(output, `update from the "test" chart repository`) {
-		t.Errorf("Repo was unexpectedly updated\n%s", output)
-	}
-}
-
 func TestDependencyUpdateCmd_DontDeleteOldChartsOnError(t *testing.T) {
-	hh, err := tempHelmHome(t)
+	defer resetEnv()()
+	defer ensure.HelmHome(t)()
+
+	srv, err := repotest.NewTempServer("testdata/testcharts/*.tgz")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cleanup := resetEnv()
-	defer func() {
-		os.RemoveAll(hh.String())
-		cleanup()
-	}()
-
-	settings.Home = hh
-
-	srv := repotest.NewServer(hh.String())
 	defer srv.Stop()
-	copied, err := srv.CopyCharts("testdata/testcharts/*.tgz")
-	if err != nil {
+	t.Logf("Listening on directory %s", srv.Root())
+
+	if err := srv.LinkIndices(); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("Copied charts:\n%s", strings.Join(copied, "\n"))
-	t.Logf("Listening on directory %s", srv.Root())
 
 	chartname := "depupdelete"
-	if err := createTestingChart(hh.String(), chartname, srv.URL()); err != nil {
-		t.Fatal(err)
+
+	dir := func(p ...string) string {
+		return filepath.Join(append([]string{srv.Root()}, p...)...)
 	}
+	createTestingChart(t, dir(), chartname, srv.URL())
 
-	out := bytes.NewBuffer(nil)
-	duc := &dependencyUpdateCmd{out: out}
-	duc.helmhome = helmpath.Home(hh)
-	duc.chartpath = filepath.Join(hh.String(), chartname)
-
-	if err := duc.run(); err != nil {
-		output := out.String()
+	_, output, err := executeActionCommand(fmt.Sprintf("dependency update %s --repository-config %s --repository-cache %s", dir(chartname), dir("repositories.yaml"), dir()))
+	if err != nil {
 		t.Logf("Output: %s", output)
 		t.Fatal(err)
 	}
@@ -213,14 +148,14 @@ func TestDependencyUpdateCmd_DontDeleteOldChartsOnError(t *testing.T) {
 	// Chart repo is down
 	srv.Stop()
 
-	if err := duc.run(); err == nil {
-		output := out.String()
+	_, output, err = executeActionCommand(fmt.Sprintf("dependency update %s --repository-config %s --repository-cache %s", dir(chartname), dir("repositories.yaml"), dir()))
+	if err == nil {
 		t.Logf("Output: %s", output)
 		t.Fatal("Expected error, got nil")
 	}
 
 	// Make sure charts dir still has dependencies
-	files, err := ioutil.ReadDir(filepath.Join(duc.chartpath, "charts"))
+	files, err := ioutil.ReadDir(filepath.Join(dir(chartname), "charts"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,38 +171,35 @@ func TestDependencyUpdateCmd_DontDeleteOldChartsOnError(t *testing.T) {
 	}
 
 	// Make sure tmpcharts is deleted
-	if _, err := os.Stat(filepath.Join(duc.chartpath, "tmpcharts")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir(chartname), "tmpcharts")); !os.IsNotExist(err) {
 		t.Fatalf("tmpcharts dir still exists")
+	}
+}
+
+// createTestingMetadata creates a basic chart that depends on reqtest-0.1.0
+//
+// The baseURL can be used to point to a particular repository server.
+func createTestingMetadata(name, baseURL string) *chart.Chart {
+	return &chart.Chart{
+		Metadata: &chart.Metadata{
+			APIVersion: chart.APIVersionV1,
+			Name:       name,
+			Version:    "1.2.3",
+			Dependencies: []*chart.Dependency{
+				{Name: "reqtest", Version: "0.1.0", Repository: baseURL},
+				{Name: "compressedchart", Version: "0.1.0", Repository: baseURL},
+			},
+		},
 	}
 }
 
 // createTestingChart creates a basic chart that depends on reqtest-0.1.0
 //
 // The baseURL can be used to point to a particular repository server.
-func createTestingChart(dest, name, baseURL string) error {
-	cfile := &chart.Metadata{
-		Name:    name,
-		Version: "1.2.3",
+func createTestingChart(t *testing.T, dest, name, baseURL string) {
+	t.Helper()
+	cfile := createTestingMetadata(name, baseURL)
+	if err := chartutil.SaveDir(cfile, dest); err != nil {
+		t.Fatal(err)
 	}
-	dir := filepath.Join(dest, name)
-	_, err := chartutil.Create(cfile, dest)
-	if err != nil {
-		return err
-	}
-	req := &chartutil.Requirements{
-		Dependencies: []*chartutil.Dependency{
-			{Name: "reqtest", Version: "0.1.0", Repository: baseURL},
-			{Name: "compressedchart", Version: "0.1.0", Repository: baseURL},
-		},
-	}
-	return writeRequirements(dir, req)
-}
-
-func writeRequirements(dir string, req *chartutil.Requirements) error {
-	data, err := yaml.Marshal(req)
-	if err != nil {
-		return err
-	}
-
-	return ioutil.WriteFile(filepath.Join(dir, "requirements.yaml"), data, 0655)
 }

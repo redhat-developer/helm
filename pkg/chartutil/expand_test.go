@@ -39,6 +39,19 @@ func TestExpand(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	files, err := ioutil.ReadDir(dest)
+	if err != nil {
+		t.Fatalf("error reading output directory %s: %s", dest, err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("expected a single chart directory in output directory %s", dest)
+	}
+
+	if !files[0].IsDir() {
+		t.Fatalf("expected a chart directory in output directory %s", dest)
+	}
+
 	expectedChartPath := filepath.Join(dest, "frobnitz")
 	fi, err := os.Stat(expectedChartPath)
 	if err != nil {
@@ -58,7 +71,7 @@ func TestExpand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expectLen := 12
+	expectLen := 11
 	if len(fis) != expectLen {
 		t.Errorf("Expected %d files, but got %d", expectLen, len(fis))
 	}
@@ -104,7 +117,7 @@ func TestExpandFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expectLen := 12
+	expectLen := 11
 	if len(fis) != expectLen {
 		t.Errorf("Expected %d files, but got %d", expectLen, len(fis))
 	}

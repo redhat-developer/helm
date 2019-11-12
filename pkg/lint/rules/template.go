@@ -17,22 +17,26 @@ limitations under the License.
 package rules
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
-	"github.com/ghodss/yaml"
-	"k8s.io/helm/pkg/chartutil"
-	"k8s.io/helm/pkg/engine"
-	"k8s.io/helm/pkg/lint/support"
-	cpb "k8s.io/helm/pkg/proto/hapi/chart"
-	"k8s.io/helm/pkg/timeconv"
-	tversion "k8s.io/helm/pkg/version"
+	"github.com/pkg/errors"
+	"sigs.k8s.io/yaml"
+
+	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/chartutil"
+	"helm.sh/helm/v3/pkg/engine"
+	"helm.sh/helm/v3/pkg/lint/support"
+)
+
+var (
+	crdHookSearch     = regexp.MustCompile(`"?helm\.sh/hook"?:\s+crd-install`)
+	releaseTimeSearch = regexp.MustCompile(`\.Release\.Time`)
 )
 
 // Templates lints the templates in the Linter.
-func Templates(linter *support.Linter, values []byte, namespace string, strict bool) {
+func Templates(linter *support.Linter, values map[string]interface{}, namespace string, strict bool) {
 	path := "templates/"
 	templatesPath := filepath.Join(linter.ChartDir, path)
 
@@ -44,7 +48,7 @@ func Templates(linter *support.Linter, values []byte, namespace string, strict b
 	}
 
 	// Load chart and parse templates, based on tiller/release_server
-	chart, err := chartutil.Load(linter.ChartDir)
+	chart, err := loader.Load(linter.ChartDir)
 
 	chartLoaded := linter.RunLinterRule(support.ErrorSev, path, err)
 
@@ -52,34 +56,23 @@ func Templates(linter *support.Linter, values []byte, namespace string, strict b
 		return
 	}
 
-	options := chartutil.ReleaseOptions{Name: "testRelease", Time: timeconv.Now(), Namespace: namespace}
-	caps := &chartutil.Capabilities{
-		APIVersions:   chartutil.DefaultVersionSet,
-		KubeVersion:   chartutil.DefaultKubeVersion,
-		TillerVersion: tversion.GetVersionProto(),
+	options := chartutil.ReleaseOptions{
+		Name:      "testRelease",
+		Namespace: namespace,
 	}
-	cvals, err := chartutil.CoalesceValues(chart, &cpb.Config{Raw: string(values)})
+
+	cvals, err := chartutil.CoalesceValues(chart, values)
 	if err != nil {
 		return
 	}
-	// convert our values back into config
-	yvals, err := cvals.YAML()
+	valuesToRender, err := chartutil.ToRenderValues(chart, cvals, options, nil)
 	if err != nil {
+		linter.RunLinterRule(support.ErrorSev, path, err)
 		return
 	}
-	cc := &cpb.Config{Raw: yvals}
-	valuesToRender, err := chartutil.ToRenderValuesCaps(chart, cc, options, caps)
-	if err != nil {
-		// FIXME: This seems to generate a duplicate, but I can't find where the first
-		// error is coming from.
-		//linter.RunLinterRule(support.ErrorSev, err)
-		return
-	}
-	e := engine.New()
+	var e engine.Engine
+	e.Strict = strict
 	e.LintMode = true
-	if strict {
-		e.Strict = true
-	}
 	renderedContentMap, err := e.Render(chart, valuesToRender)
 
 	renderOk := linter.RunLinterRule(support.ErrorSev, path, err)
@@ -96,17 +89,28 @@ func Templates(linter *support.Linter, values []byte, namespace string, strict b
 	- Metadata.Namespace is not set
 	*/
 	for _, template := range chart.Templates {
-		fileName, _ := template.Name, template.Data
+		fileName, data := template.Name, template.Data
 		path = fileName
 
-		linter.RunLinterRule(support.WarningSev, path, validateAllowedExtension(fileName))
+		linter.RunLinterRule(support.ErrorSev, path, validateAllowedExtension(fileName))
+		// These are v3 specific checks to make sure and warn people if their
+		// chart is not compatible with v3
+		linter.RunLinterRule(support.WarningSev, path, validateNoCRDHooks(data))
+		linter.RunLinterRule(support.ErrorSev, path, validateNoReleaseTime(data))
 
 		// We only apply the following lint rules to yaml files
 		if filepath.Ext(fileName) != ".yaml" || filepath.Ext(fileName) == ".yml" {
 			continue
 		}
 
-		renderedContent := renderedContentMap[filepath.Join(chart.GetMetadata().Name, fileName)]
+		// NOTE: disabled for now, Refs https://github.com/helm/helm/issues/1463
+		// Check that all the templates have a matching value
+		//linter.RunLinterRule(support.WarningSev, path, validateNoMissingValues(templatesPath, valuesToRender, preExecutedTemplate))
+
+		// NOTE: disabled for now, Refs https://github.com/helm/helm/issues/1037
+		// linter.RunLinterRule(support.WarningSev, path, validateQuotes(string(preExecutedTemplate)))
+
+		renderedContent := renderedContentMap[filepath.Join(chart.Name(), fileName)]
 		var yamlStruct K8sYamlStruct
 		// Even though K8sYamlStruct only defines Metadata namespace, an error in any other
 		// key will be raised as well
@@ -124,7 +128,7 @@ func Templates(linter *support.Linter, values []byte, namespace string, strict b
 func validateTemplatesDir(templatesPath string) error {
 	if fi, err := os.Stat(templatesPath); err != nil {
 		return errors.New("directory not found")
-	} else if err == nil && !fi.IsDir() {
+	} else if !fi.IsDir() {
 		return errors.New("not a directory")
 	}
 	return nil
@@ -140,12 +144,23 @@ func validateAllowedExtension(fileName string) error {
 		}
 	}
 
-	return fmt.Errorf("file extension '%s' not valid. Valid extensions are .yaml, .yml, .tpl, or .txt", ext)
+	return errors.Errorf("file extension '%s' not valid. Valid extensions are .yaml, .yml, .tpl, or .txt", ext)
 }
 
 func validateYamlContent(err error) error {
-	if err != nil {
-		return fmt.Errorf("unable to parse YAML\n\t%s", err)
+	return errors.Wrap(err, "unable to parse YAML")
+}
+
+func validateNoCRDHooks(manifest []byte) error {
+	if crdHookSearch.Match(manifest) {
+		return errors.New("manifest is a crd-install hook. This hook is no longer supported in v3 and all CRDs should also exist the crds/ directory at the top level of the chart")
+	}
+	return nil
+}
+
+func validateNoReleaseTime(manifest []byte) error {
+	if releaseTimeSearch.Match(manifest) {
+		return errors.New(".Release.Time has been removed in v3, please replace with the `now` function in your templates")
 	}
 	return nil
 }

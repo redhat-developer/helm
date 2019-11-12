@@ -3,14 +3,14 @@ kind: Service
 metadata:
   name: {{ .Chart.Name }}
   labels:
-    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
-    namespace: "{{ .Release.Namespace }}"
-    release-name: "{{ .Release.Name }}"
-    release-is-upgrade: "{{ .Release.IsUpgrade }}"
-    release-is-install: "{{ .Release.IsInstall }}"
+    helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    app.kubernetes.io/instance: "{{ .Release.Name }}"
     kube-version/major: "{{ .Capabilities.KubeVersion.Major }}"
     kube-version/minor: "{{ .Capabilities.KubeVersion.Minor }}"
-    kube-version/gitversion: "v{{ .Capabilities.KubeVersion.Major }}.{{ .Capabilities.KubeVersion.Minor }}.0"
+    kube-version/version: "v{{ .Capabilities.KubeVersion.Major }}.{{ .Capabilities.KubeVersion.Minor }}.0"
+{{- if .Capabilities.APIVersions.Has "helm.k8s.io/test" }}
+    kube-api-version/test: v1
+{{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -19,4 +19,4 @@ spec:
     protocol: TCP
     name: {{ .Values.service.name }}
   selector:
-    app: {{ .Chart.Name }}
+    app.kubernetes.io/name: {{ .Chart.Name }}

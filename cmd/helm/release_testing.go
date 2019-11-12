@@ -19,99 +19,61 @@ package main
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/helm/pkg/helm"
-	"k8s.io/helm/pkg/proto/hapi/release"
+	"helm.sh/helm/v3/cmd/helm/require"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/cli/output"
 )
 
-const releaseTestDesc = `
+const releaseTestHelp = `
 The test command runs the tests for a release.
 
 The argument this command takes is the name of a deployed release.
 The tests to be run are defined in the chart that was installed.
 `
 
-type releaseTestCmd struct {
-	name     string
-	out      io.Writer
-	client   helm.Interface
-	timeout  int64
-	cleanup  bool
-	parallel bool
-}
-
-func newReleaseTestCmd(c helm.Interface, out io.Writer) *cobra.Command {
-	rlsTest := &releaseTestCmd{
-		out:    out,
-		client: c,
-	}
+func newReleaseTestCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	client := action.NewReleaseTesting(cfg)
+	var outfmt = output.Table
+	var outputLogs bool
 
 	cmd := &cobra.Command{
-		Use:     "test [RELEASE]",
-		Short:   "Test a release",
-		Long:    releaseTestDesc,
-		PreRunE: func(_ *cobra.Command, _ []string) error { return setupConnection() },
+		Use:   "test [RELEASE]",
+		Short: "run tests for a release",
+		Long:  releaseTestHelp,
+		Args:  require.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := checkArgsLength(len(args), "release name"); err != nil {
+			client.Namespace = settings.Namespace()
+			rel, runErr := client.Run(args[0])
+			// We only return an error if we weren't even able to get the
+			// release, otherwise we keep going so we can print status and logs
+			// if requested
+			if runErr != nil && rel == nil {
+				return runErr
+			}
+
+			if err := outfmt.Write(out, &statusPrinter{rel, settings.Debug}); err != nil {
 				return err
 			}
 
-			rlsTest.name = args[0]
-			rlsTest.client = ensureHelmClient(rlsTest.client)
-			return rlsTest.run()
+			if outputLogs {
+				// Print a newline to stdout to separate the output
+				fmt.Fprintln(out)
+				if err := client.GetPodLogs(out, rel); err != nil {
+					return err
+				}
+			}
+
+			return runErr
 		},
 	}
 
 	f := cmd.Flags()
-	settings.AddFlagsTLS(f)
-	f.Int64Var(&rlsTest.timeout, "timeout", 300, "Time in seconds to wait for any individual Kubernetes operation (like Jobs for hooks)")
-	f.BoolVar(&rlsTest.cleanup, "cleanup", false, "Delete test pods upon completion")
-	f.BoolVar(&rlsTest.parallel, "parallel", false, "Run test pods in parallel")
-
-	// set defaults from environment
-	settings.InitTLS(f)
+	f.DurationVar(&client.Timeout, "timeout", 300*time.Second, "time to wait for any individual Kubernetes operation (like Jobs for hooks)")
+	f.BoolVar(&outputLogs, "logs", false, "Dump the logs from test pods (this runs after all tests are complete, but before any cleanup)")
 
 	return cmd
-}
-
-func (t *releaseTestCmd) run() (err error) {
-	c, errc := t.client.RunReleaseTest(
-		t.name,
-		helm.ReleaseTestTimeout(t.timeout),
-		helm.ReleaseTestCleanup(t.cleanup),
-		helm.ReleaseTestParallel(t.parallel),
-	)
-	testErr := &testErr{}
-
-	for {
-		select {
-		case err := <-errc:
-			if prettyError(err) == nil && testErr.failed > 0 {
-				return testErr.Error()
-			}
-			return prettyError(err)
-		case res, ok := <-c:
-			if !ok {
-				break
-			}
-
-			if res.Status == release.TestRun_FAILURE {
-				testErr.failed++
-			}
-
-			fmt.Fprintf(t.out, res.Msg+"\n")
-
-		}
-	}
-
-}
-
-type testErr struct {
-	failed int
-}
-
-func (err *testErr) Error() error {
-	return fmt.Errorf("%v test(s) failed", err.failed)
 }

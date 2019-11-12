@@ -14,14 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package releaseutil // import "k8s.io/helm/pkg/releaseutil"
+package releaseutil // import "helm.sh/helm/v3/pkg/releaseutil"
 
 import (
 	"reflect"
 	"testing"
 )
 
-const manifestFile = `
+const mockManifestFile = `
 
 ---
 apiVersion: v1
@@ -29,7 +29,7 @@ kind: Pod
 metadata:
   name: finding-nemo,
   annotations:
-    "helm.sh/hook": test-success
+    "helm.sh/hook": test
 spec:
   containers:
   - name: nemo-test
@@ -42,7 +42,7 @@ kind: Pod
 metadata:
   name: finding-nemo,
   annotations:
-    "helm.sh/hook": test-success
+    "helm.sh/hook": test
 spec:
   containers:
   - name: nemo-test
@@ -50,7 +50,7 @@ spec:
     cmd: fake-command`
 
 func TestSplitManifest(t *testing.T) {
-	manifests := SplitManifests(manifestFile)
+	manifests := SplitManifests(mockManifestFile)
 	if len(manifests) != 1 {
 		t.Errorf("Expected 1 manifest, got %v", len(manifests))
 	}

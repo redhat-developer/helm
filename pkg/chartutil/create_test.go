@@ -20,10 +20,10 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"k8s.io/helm/pkg/proto/hapi/chart"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chart/loader"
 )
 
 func TestCreate(t *testing.T) {
@@ -33,56 +33,39 @@ func TestCreate(t *testing.T) {
 	}
 	defer os.RemoveAll(tdir)
 
-	cf := &chart.Metadata{Name: "foo"}
-
-	c, err := Create(cf, tdir)
+	c, err := Create("foo", tdir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	dir := filepath.Join(tdir, "foo")
 
-	mychart, err := LoadDir(c)
+	mychart, err := loader.LoadDir(c)
 	if err != nil {
 		t.Fatalf("Failed to load newly created chart %q: %s", c, err)
 	}
 
-	if mychart.Metadata.Name != "foo" {
-		t.Errorf("Expected name to be 'foo', got %q", mychart.Metadata.Name)
+	if mychart.Name() != "foo" {
+		t.Errorf("Expected name to be 'foo', got %q", mychart.Name())
 	}
 
-	for _, d := range []string{TemplatesDir, ChartsDir} {
-		if fi, err := os.Stat(filepath.Join(dir, d)); err != nil {
-			t.Errorf("Expected %s dir: %s", d, err)
-		} else if !fi.IsDir() {
-			t.Errorf("Expected %s to be a directory.", d)
-		}
-	}
-
-	for _, f := range []string{ChartfileName, ValuesfileName, IgnorefileName} {
-		if fi, err := os.Stat(filepath.Join(dir, f)); err != nil {
+	for _, f := range []string{
+		ChartfileName,
+		DeploymentName,
+		HelpersName,
+		IgnorefileName,
+		NotesName,
+		ServiceAccountName,
+		ServiceName,
+		TemplatesDir,
+		TemplatesTestsDir,
+		TestConnectionName,
+		ValuesfileName,
+	} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("Expected %s file: %s", f, err)
-		} else if fi.IsDir() {
-			t.Errorf("Expected %s to be a file.", f)
 		}
 	}
-
-	for _, f := range []string{NotesName, DeploymentName, ServiceName, HelpersName} {
-		if fi, err := os.Stat(filepath.Join(dir, TemplatesDir, f)); err != nil {
-			t.Errorf("Expected %s file: %s", f, err)
-		} else if fi.IsDir() {
-			t.Errorf("Expected %s to be a file.", f)
-		}
-	}
-
-	for _, f := range []string{TestConnectionName} {
-		if fi, err := os.Stat(filepath.Join(dir, TemplatesTestsDir, f)); err != nil {
-			t.Errorf("Expected %s file: %s", f, err)
-		} else if fi.IsDir() {
-			t.Errorf("Expected %s to be a file.", f)
-		}
-	}
-
 }
 
 func TestCreateFrom(t *testing.T) {
@@ -92,7 +75,11 @@ func TestCreateFrom(t *testing.T) {
 	}
 	defer os.RemoveAll(tdir)
 
-	cf := &chart.Metadata{Name: "foo"}
+	cf := &chart.Metadata{
+		APIVersion: chart.APIVersionV1,
+		Name:       "foo",
+		Version:    "0.1.0",
+	}
 	srcdir := "./testdata/mariner"
 
 	if err := CreateFrom(cf, tdir, srcdir); err != nil {
@@ -100,43 +87,23 @@ func TestCreateFrom(t *testing.T) {
 	}
 
 	dir := filepath.Join(tdir, "foo")
-
 	c := filepath.Join(tdir, cf.Name)
-	mychart, err := LoadDir(c)
+	mychart, err := loader.LoadDir(c)
 	if err != nil {
 		t.Fatalf("Failed to load newly created chart %q: %s", c, err)
 	}
 
-	if mychart.Metadata.Name != "foo" {
-		t.Errorf("Expected name to be 'foo', got %q", mychart.Metadata.Name)
+	if mychart.Name() != "foo" {
+		t.Errorf("Expected name to be 'foo', got %q", mychart.Name())
 	}
 
-	for _, d := range []string{TemplatesDir, ChartsDir} {
-		if fi, err := os.Stat(filepath.Join(dir, d)); err != nil {
-			t.Errorf("Expected %s dir: %s", d, err)
-		} else if !fi.IsDir() {
-			t.Errorf("Expected %s to be a directory.", d)
-		}
-	}
-
-	for _, f := range []string{ChartfileName, ValuesfileName, "requirements.yaml"} {
-		if fi, err := os.Stat(filepath.Join(dir, f)); err != nil {
+	for _, f := range []string{
+		ChartfileName,
+		ValuesfileName,
+		filepath.Join(TemplatesDir, "placeholder.tpl"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("Expected %s file: %s", f, err)
-		} else if fi.IsDir() {
-			t.Errorf("Expected %s to be a file.", f)
 		}
-	}
-
-	for _, f := range []string{"placeholder.tpl"} {
-		if fi, err := os.Stat(filepath.Join(dir, TemplatesDir, f)); err != nil {
-			t.Errorf("Expected %s file: %s", f, err)
-		} else if fi.IsDir() {
-			t.Errorf("Expected %s to be a file.", f)
-		}
-	}
-
-	// Ensure we replace `<CHARTNAME>`
-	if strings.Contains(mychart.Values.Raw, "<CHARTNAME>") {
-		t.Errorf("Did not expect %s to be present in %s", "<CHARTNAME>", mychart.Values.Raw)
 	}
 }

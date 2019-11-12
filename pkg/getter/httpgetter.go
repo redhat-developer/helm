@@ -17,35 +17,30 @@ package getter
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
-	"k8s.io/helm/pkg/tlsutil"
-	"k8s.io/helm/pkg/version"
+	"github.com/pkg/errors"
+
+	"helm.sh/helm/v3/internal/tlsutil"
+	"helm.sh/helm/v3/internal/urlutil"
+	"helm.sh/helm/v3/internal/version"
 )
 
-//HttpGetter is the default HTTP(/S) backend handler
-// TODO: change the name to HTTPGetter in Helm 3
-type HttpGetter struct { //nolint
-	client   *http.Client
-	username string
-	password string
-}
-
-//SetCredentials sets the credentials for the getter
-func (g *HttpGetter) SetCredentials(username, password string) {
-	g.username = username
-	g.password = password
+// HTTPGetter is the efault HTTP(/S) backend handler
+type HTTPGetter struct {
+	opts options
 }
 
 //Get performs a Get from repo.Getter and returns the body.
-func (g *HttpGetter) Get(href string) (*bytes.Buffer, error) {
+func (g *HTTPGetter) Get(href string, options ...Option) (*bytes.Buffer, error) {
+	for _, opt := range options {
+		opt(&g.opts)
+	}
 	return g.get(href)
 }
 
-func (g *HttpGetter) get(href string) (*bytes.Buffer, error) {
+func (g *HTTPGetter) get(href string) (*bytes.Buffer, error) {
 	buf := bytes.NewBuffer(nil)
 
 	// Set a helm specific user agent so that a repo server and metrics can
@@ -54,18 +49,27 @@ func (g *HttpGetter) get(href string) (*bytes.Buffer, error) {
 	if err != nil {
 		return buf, err
 	}
-	req.Header.Set("User-Agent", "Helm/"+strings.TrimPrefix(version.GetVersion(), "v"))
 
-	if g.username != "" && g.password != "" {
-		req.SetBasicAuth(g.username, g.password)
+	req.Header.Set("User-Agent", version.GetUserAgent())
+	if g.opts.userAgent != "" {
+		req.Header.Set("User-Agent", g.opts.userAgent)
 	}
 
-	resp, err := g.client.Do(req)
+	if g.opts.username != "" && g.opts.password != "" {
+		req.SetBasicAuth(g.opts.username, g.opts.password)
+	}
+
+	client, err := g.httpClient()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return buf, err
 	}
 	if resp.StatusCode != 200 {
-		return buf, fmt.Errorf("Failed to fetch %s : %s", href, resp.Status)
+		return buf, errors.Errorf("failed to fetch %s : %s", href, resp.Status)
 	}
 
 	_, err = io.Copy(buf, resp.Body)
@@ -73,25 +77,39 @@ func (g *HttpGetter) get(href string) (*bytes.Buffer, error) {
 	return buf, err
 }
 
-// newHTTPGetter constructs a valid http/https client as Getter
-func newHTTPGetter(URL, CertFile, KeyFile, CAFile string) (Getter, error) {
-	return NewHTTPGetter(URL, CertFile, KeyFile, CAFile)
+// NewHTTPGetter constructs a valid http/https client as a Getter
+func NewHTTPGetter(options ...Option) (Getter, error) {
+	var client HTTPGetter
+
+	for _, opt := range options {
+		opt(&client.opts)
+	}
+
+	return &client, nil
 }
 
-// NewHTTPGetter constructs a valid http/https client as HttpGetter
-func NewHTTPGetter(URL, CertFile, KeyFile, CAFile string) (*HttpGetter, error) {
-	var client HttpGetter
-	tr := &http.Transport{
-		DisableCompression: true,
-		Proxy:              http.ProxyFromEnvironment,
-	}
-	if (CertFile != "" && KeyFile != "") || CAFile != "" {
-		tlsConf, err := tlsutil.NewTLSConfig(URL, CertFile, KeyFile, CAFile)
+func (g *HTTPGetter) httpClient() (*http.Client, error) {
+	if g.opts.certFile != "" && g.opts.keyFile != "" {
+		tlsConf, err := tlsutil.NewClientTLS(g.opts.certFile, g.opts.keyFile, g.opts.caFile)
 		if err != nil {
-			return &client, fmt.Errorf("can't create TLS config: %s", err.Error())
+			return nil, errors.Wrap(err, "can't create TLS config for client")
 		}
-		tr.TLSClientConfig = tlsConf
+		tlsConf.BuildNameToCertificate()
+
+		sni, err := urlutil.ExtractHostname(g.opts.url)
+		if err != nil {
+			return nil, err
+		}
+		tlsConf.ServerName = sni
+
+		client := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConf,
+				Proxy:           http.ProxyFromEnvironment,
+			},
+		}
+
+		return client, nil
 	}
-	client.client = &http.Client{Transport: tr}
-	return &client, nil
+	return http.DefaultClient, nil
 }

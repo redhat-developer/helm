@@ -13,19 +13,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package installer // import "k8s.io/helm/pkg/plugin/installer"
+package installer // import "helm.sh/helm/v3/pkg/plugin/installer"
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"sort"
 
-	"github.com/Masterminds/semver"
+	"github.com/Masterminds/semver/v3"
 	"github.com/Masterminds/vcs"
+	"github.com/pkg/errors"
 
-	"k8s.io/helm/pkg/helm/helmpath"
-	"k8s.io/helm/pkg/plugin/cache"
+	"helm.sh/helm/v3/pkg/helmpath"
+	"helm.sh/helm/v3/pkg/plugin/cache"
 )
 
 // VCSInstaller installs plugins from remote a repository.
@@ -35,25 +34,25 @@ type VCSInstaller struct {
 	base
 }
 
-func existingVCSRepo(location string, home helmpath.Home) (Installer, error) {
+func existingVCSRepo(location string) (Installer, error) {
 	repo, err := vcs.NewRepo("", location)
 	if err != nil {
 		return nil, err
 	}
 	i := &VCSInstaller{
 		Repo: repo,
-		base: newBase(repo.Remote(), home),
+		base: newBase(repo.Remote()),
 	}
 	return i, err
 }
 
 // NewVCSInstaller creates a new VCSInstaller.
-func NewVCSInstaller(source, version string, home helmpath.Home) (*VCSInstaller, error) {
+func NewVCSInstaller(source, version string) (*VCSInstaller, error) {
 	key, err := cache.Key(source)
 	if err != nil {
 		return nil, err
 	}
-	cachedpath := home.Path("cache", "plugins", key)
+	cachedpath := helmpath.CachePath("plugins", key)
 	repo, err := vcs.NewRepo(source, cachedpath)
 	if err != nil {
 		return nil, err
@@ -61,12 +60,12 @@ func NewVCSInstaller(source, version string, home helmpath.Home) (*VCSInstaller,
 	i := &VCSInstaller{
 		Repo:    repo,
 		Version: version,
-		base:    newBase(source, home),
+		base:    newBase(source),
 	}
 	return i, err
 }
 
-// Install clones a remote repository and creates a symlink to the plugin directory in HELM_HOME.
+// Install clones a remote repository and creates a symlink to the plugin directory.
 //
 // Implements Installer.
 func (i *VCSInstaller) Install() error {
@@ -143,7 +142,7 @@ func (i *VCSInstaller) solveVersion(repo vcs.Repo) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("requested version %q does not exist for plugin %q", i.Version, i.Repo.Remote())
+	return "", errors.Errorf("requested version %q does not exist for plugin %q", i.Version, i.Repo.Remote())
 }
 
 // setVersion attempts to checkout the version

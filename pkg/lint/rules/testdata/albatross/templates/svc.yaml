@@ -9,7 +9,6 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     helm.sh/chart: "{{.Chart.Name}}-{{.Chart.Version}}"
     kubeVersion: {{ .Capabilities.KubeVersion.Major }}
-    tillerVersion: {{ .Capabilities.TillerVersion }}
 spec:
   ports:
   - port: {{default 80 .Values.httpPort | quote}}
@@ -17,4 +16,4 @@ spec:
     protocol: TCP
     name: http
   selector:
-    app: {{template "fullname" .}}
+    app.kubernetes.io/name: {{template "fullname" .}}

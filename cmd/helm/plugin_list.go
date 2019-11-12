@@ -19,42 +19,30 @@ import (
 	"fmt"
 	"io"
 
-	"k8s.io/helm/pkg/helm/helmpath"
-
 	"github.com/gosuri/uitable"
 	"github.com/spf13/cobra"
 )
 
-type pluginListCmd struct {
-	home helmpath.Home
-	out  io.Writer
-}
-
 func newPluginListCmd(out io.Writer) *cobra.Command {
-	pcmd := &pluginListCmd{out: out}
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List installed Helm plugins",
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "list installed Helm plugins",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pcmd.home = settings.Home
-			return pcmd.run()
+			debug("pluginDirs: %s", settings.PluginsDirectory)
+			plugins, err := findPlugins(settings.PluginsDirectory)
+			if err != nil {
+				return err
+			}
+
+			table := uitable.New()
+			table.AddRow("NAME", "VERSION", "DESCRIPTION")
+			for _, p := range plugins {
+				table.AddRow(p.Metadata.Name, p.Metadata.Version, p.Metadata.Description)
+			}
+			fmt.Fprintln(out, table)
+			return nil
 		},
 	}
 	return cmd
-}
-
-func (pcmd *pluginListCmd) run() error {
-	debug("pluginDirs: %s", settings.PluginDirs())
-	plugins, err := findPlugins(settings.PluginDirs())
-	if err != nil {
-		return err
-	}
-
-	table := uitable.New()
-	table.AddRow("NAME", "VERSION", "DESCRIPTION")
-	for _, p := range plugins {
-		table.AddRow(p.Metadata.Name, p.Metadata.Version, p.Metadata.Description)
-	}
-	fmt.Fprintln(pcmd.out, table)
-	return nil
 }
