@@ -119,7 +119,7 @@ $(GOX):
 	(cd /; GO111MODULE=on go get -u github.com/mitchellh/gox)
 
 $(GOLANGCI_LINT):
-	(cd /; GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint@master)
+	(cd /; GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint)
 
 $(GOIMPORTS):
 	(cd /; GO111MODULE=on go get -u golang.org/x/tools/cmd/goimports)
