@@ -6,4 +6,8 @@ ENV GIT_COMMITTER_EMAIL devtools@redhat.com
 
 WORKDIR /go/src/github.com/redhat-developer/helm
 
+RUN yum -y install python-pip
+RUN pip install virtualenv
+RUN git clone https://github.com/ldimaggi/acceptance-testing.git
+
 COPY . .
