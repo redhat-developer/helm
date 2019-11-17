@@ -1,8 +1,7 @@
-BINDIR      := $(CURDIR)/bin
-DIST_DIRS   := find * -type d -exec
-TARGETS     := darwin/amd64 linux/amd64 linux/386 linux/arm linux/arm64 linux/ppc64le windows/amd64
-TARGET_OBJS ?= darwin-amd64.tar.gz darwin-amd64.tar.gz.sha256 linux-amd64.tar.gz linux-amd64.tar.gz.sha256 linux-386.tar.gz linux-386.tar.gz.sha256 linux-arm.tar.gz linux-arm.tar.gz.sha256 linux-arm64.tar.gz linux-arm64.tar.gz.sha256 linux-ppc64le.tar.gz linux-ppc64le.tar.gz.sha256 windows-amd64.zip windows-amd64.zip.sha256
-BINNAME     ?= helm
+BINDIR     := $(CURDIR)/bin
+DIST_DIRS  := find * -type d -exec
+TARGETS    := darwin/amd64 linux/amd64 linux/386 linux/arm linux/arm64 linux/ppc64le linux/s390x windows/amd64
+BINNAME    ?= helm
 
 GOPATH        = $(shell go env GOPATH)
 DEP           = $(GOPATH)/bin/dep
