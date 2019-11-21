@@ -18,11 +18,8 @@ package action
 
 import (
 	"io/ioutil"
-	"os"
 	"strings"
 	"testing"
-
-	"k8s.io/helm/pkg/repo/repotest"
 )
 
 func TestShow(t *testing.T) {
@@ -75,68 +72,5 @@ func TestShow(t *testing.T) {
 
 	if len(output) != 0 {
 		t.Errorf("expected empty values buffer, got %s", output)
-	}
-}
-
-func TestInspectPreReleaseChart(t *testing.T) {
-	hh, err := tempHelmHome(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cleanup := resetEnv()
-	defer func() {
-		os.RemoveAll(hh.String())
-		cleanup()
-	}()
-
-	settings.Home = hh
-
-	srv := repotest.NewServer(hh.String())
-	defer srv.Stop()
-
-	if _, err := srv.CopyCharts("testdata/testcharts/*.tgz*"); err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.LinkIndices(); err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []struct {
-		name        string
-		args        []string
-		flags       []string
-		fail        bool
-		expectedErr string
-	}{
-		{
-			name:        "inspect pre-release chart",
-			args:        []string{"prerelease"},
-			fail:        true,
-			expectedErr: "chart \"prerelease\" not found",
-		},
-		{
-			name:  "inspect pre-release chart with 'devel' flag",
-			args:  []string{"prerelease"},
-			flags: []string{"--devel"},
-			fail:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.flags = append(tt.flags, "--repo", srv.URL())
-			cmd := newInspectCmd(ioutil.Discard)
-			cmd.SetArgs(tt.args)
-			cmd.ParseFlags(tt.flags)
-			if err := cmd.RunE(cmd, tt.args); err != nil {
-				if tt.fail {
-					if !strings.Contains(err.Error(), tt.expectedErr) {
-						t.Errorf("%q expected error: %s, got: %s", tt.name, tt.expectedErr, err.Error())
-					}
-					return
-				}
-				t.Errorf("%q reported error: %s", tt.name, err)
-			}
-		})
 	}
 }
