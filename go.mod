@@ -5,7 +5,9 @@ go 1.13
 require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/MakeNowJust/heredoc v0.0.0-20171113091838-e9091a26100e // indirect
+	github.com/Masterminds/semver v1.5.0
 	github.com/Masterminds/semver/v3 v3.0.1
+	github.com/Masterminds/sprig v2.22.0+incompatible // indirect
 	github.com/Masterminds/sprig/v3 v3.0.0
 	github.com/Masterminds/vcs v1.13.0
 	github.com/Microsoft/go-winio v0.4.12 // indirect
@@ -33,8 +35,8 @@ require (
 	github.com/gregjones/httpcache v0.0.0-20181110185634-c63ab54fda8f // indirect
 	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/imdario/mergo v0.3.8 // indirect
-	github.com/jmoiron/sqlx v1.2.0
-	github.com/lib/pq v1.2.0
+	github.com/jmoiron/sqlx v1.2.0 // indirect
+	github.com/lib/pq v1.2.0 // indirect
 	github.com/mailru/easyjson v0.7.0 // indirect
 	github.com/mattn/go-runewidth v0.0.4 // indirect
 	github.com/mattn/go-shellwords v1.0.5
@@ -45,7 +47,7 @@ require (
 	github.com/opencontainers/image-spec v1.0.1
 	github.com/pkg/errors v0.8.1
 	github.com/prometheus/client_golang v1.2.1 // indirect
-	github.com/rubenv/sql-migrate v0.0.0-20191025130928-9355dd04f4b3
+	github.com/rubenv/sql-migrate v0.0.0-20191025130928-9355dd04f4b3 // indirect
 	github.com/sirupsen/logrus v1.4.2
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.5

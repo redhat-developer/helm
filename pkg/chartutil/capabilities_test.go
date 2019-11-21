@@ -57,8 +57,4 @@ func TestDefaultCapabilities(t *testing.T) {
 	if kv.Minor != "16" {
 		t.Errorf("Expected default KubeVersion.Minor to be 16, got %q", kv.Minor)
 	}
-
-	if !cap.APIVersions.Has("apps/v1/Deployment") {
-		t.Error("APIVersions should have apps/v1/Deployment")
-	}
 }
