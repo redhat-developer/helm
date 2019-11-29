@@ -1,9 +1,37 @@
-FROM openshift/origin-release:golang-1.13
+FROM registry.access.redhat.com/ubi7/ubi:latest
 
-ENV LANG=en_US.utf8
 ENV GIT_COMMITTER_NAME devtools
 ENV GIT_COMMITTER_EMAIL devtools@redhat.com
 
-WORKDIR /go/src/github.com/redhat-developer/helm
+ENV LANG=en_US.utf8
+
+ENV GOPATH /tmp/go
+ARG GOROOT_BASE=/tmp/goroot
+ENV GOROOT $GOROOT_BASE/go
+ENV PATH=:$GOPATH/bin:$GOROOT/bin:$PATH
+
+ARG GO_PACKAGE_PATH=github.com/redhat-developer/helm
+
+RUN yum install -y --quiet \
+    git \
+    make \
+    gcc \
+    python36-virtualenv \
+    && yum clean all
+
+WORKDIR /tmp
+
+RUN mkdir -p $GOPATH/bin
+RUN mkdir -p $GOROOT_BASE
+
+RUN curl -Lo go.tar.gz https://dl.google.com/go/go1.13.1.linux-amd64.tar.gz && tar -xf go.tar.gz -C $GOROOT_BASE && rm -vf go.tar.gz
+
+RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl $GOPATH/bin/
+
+RUN mkdir -p ${GOPATH}/src/${GO_PACKAGE_PATH}/
+
+WORKDIR ${GOPATH}/src/${GO_PACKAGE_PATH}
 
 COPY . .
+
+ENTRYPOINT [ "/bin/bash" ]
