@@ -24,7 +24,7 @@ WORKDIR /tmp
 
 RUN mkdir -p $GOPATH/bin
 RUN mkdir -p $GOROOT_BASE
-RUN mkdir -p $GOCACHE
+RUN mkdir -p $GOCACHE && chmod go+w $GOCACHE
 
 RUN curl -Lo go.tar.gz https://dl.google.com/go/go1.13.1.linux-amd64.tar.gz && tar -xf go.tar.gz -C $GOROOT_BASE && rm -vf go.tar.gz
 
@@ -35,5 +35,7 @@ RUN mkdir -p ${GOPATH}/src/${GO_PACKAGE_PATH}/
 WORKDIR ${GOPATH}/src/${GO_PACKAGE_PATH}
 
 COPY . .
+
+RUN chmod -R go+w ${GOPATH}/src/${GO_PACKAGE_PATH}
 
 ENTRYPOINT [ "/bin/bash" ]
