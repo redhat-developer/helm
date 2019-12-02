@@ -24,6 +24,7 @@ WORKDIR /tmp
 
 RUN mkdir -p $GOPATH/bin
 RUN mkdir -p $GOROOT_BASE
+RUN mkdir -p $GOCACHE
 
 RUN curl -Lo go.tar.gz https://dl.google.com/go/go1.13.1.linux-amd64.tar.gz && tar -xf go.tar.gz -C $GOROOT_BASE && rm -vf go.tar.gz
 
