@@ -5,10 +5,10 @@ ENV GIT_COMMITTER_EMAIL devtools@redhat.com
 
 ENV LANG=en_US.utf8
 
-ENV GOPATH /tmp/go
-ARG GOROOT_BASE=/tmp/goroot
-ENV GOROOT $GOROOT_BASE/go
-ENV GOCACHE=$GOROOT_BASE/.gocache
+ENV GOPATH=/home/helm/.gopath
+ARG GOROOT_BASE=/home/helm/.goroot
+ENV GOROOT=$GOROOT_BASE/go
+ENV GOCACHE=/home/helm/.gocache
 ENV PATH=:$GOPATH/bin:$GOROOT/bin:$PATH
 
 ARG GO_PACKAGE_PATH=github.com/redhat-developer/helm
@@ -20,11 +20,15 @@ RUN yum install -y --quiet --setopt=skip_missing_names_on_install=False \
     rh-python36-python-virtualenv \
     && yum clean all
 
-WORKDIR /tmp
+RUN useradd -m -d /home/helm -u 1001 -s /bin/bash -U -G root helm
+
+USER helm
+
+WORKDIR /home/helm
 
 RUN mkdir -p $GOPATH/bin
 RUN mkdir -p $GOROOT_BASE
-RUN mkdir -p $GOCACHE && chmod go+w $GOCACHE
+RUN mkdir -p $GOCACHE
 
 RUN curl -Lo go.tar.gz https://dl.google.com/go/go1.13.1.linux-amd64.tar.gz && tar -xf go.tar.gz -C $GOROOT_BASE && rm -vf go.tar.gz
 
@@ -35,7 +39,5 @@ RUN mkdir -p ${GOPATH}/src/${GO_PACKAGE_PATH}/
 WORKDIR ${GOPATH}/src/${GO_PACKAGE_PATH}
 
 COPY . .
-
-RUN chmod -R go+w ${GOPATH}/src/${GO_PACKAGE_PATH}
 
 ENTRYPOINT [ "/bin/bash" ]
