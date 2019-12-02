@@ -8,6 +8,7 @@ ENV LANG=en_US.utf8
 ENV GOPATH /tmp/go
 ARG GOROOT_BASE=/tmp/goroot
 ENV GOROOT $GOROOT_BASE/go
+ENV GOCACHE=$GOROOT_BASE/.gocache
 ENV PATH=:$GOPATH/bin:$GOROOT/bin:$PATH
 
 ARG GO_PACKAGE_PATH=github.com/redhat-developer/helm
