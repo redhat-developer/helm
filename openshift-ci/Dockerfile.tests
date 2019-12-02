@@ -12,11 +12,11 @@ ENV PATH=:$GOPATH/bin:$GOROOT/bin:$PATH
 
 ARG GO_PACKAGE_PATH=github.com/redhat-developer/helm
 
-RUN yum install -y --quiet \
+RUN yum install -y --quiet --setopt=skip_missing_names_on_install=False \
     git \
     make \
     gcc \
-    python36-virtualenv \
+    rh-python36-python-virtualenv \
     && yum clean all
 
 WORKDIR /tmp
