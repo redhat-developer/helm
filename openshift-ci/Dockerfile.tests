@@ -1,6 +1,7 @@
 FROM registry.access.redhat.com/ubi7/ubi:latest
 
 ARG GO_PACKAGE_PATH=github.com/redhat-developer/helm
+ARG GO_VERSION=1.13.1
 
 ENV GIT_COMMITTER_NAME      devtools
 ENV GIT_COMMITTER_EMAIL     devtools@redhat.com
@@ -22,11 +23,9 @@ RUN yum install -y --quiet --setopt=skip_missing_names_on_install=False \
 
 WORKDIR /tmp
 
-RUN mkdir -p $GOPATH/bin
-RUN mkdir -p $GOROOT
-RUN mkdir -p $GOCACHE
+RUN mkdir -p $GOPATH/bin $GOROOT $GOCACHE
 
-RUN curl -Lo go.tar.gz https://dl.google.com/go/go1.13.1.linux-amd64.tar.gz && tar -xf go.tar.gz -C / && rm -vf go.tar.gz
+RUN curl -Lo go.tar.gz https://dl.google.com/go/go$GO_VERSION.linux-amd64.tar.gz && tar -xf go.tar.gz -C / && rm -vf go.tar.gz
 
 RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl $GOPATH/bin/
 
