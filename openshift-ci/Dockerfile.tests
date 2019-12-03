@@ -1,17 +1,17 @@
 FROM registry.access.redhat.com/ubi7/ubi:latest
 
-ENV GIT_COMMITTER_NAME devtools
-ENV GIT_COMMITTER_EMAIL devtools@redhat.com
-
-ENV LANG=en_US.utf8
-
-ENV GOPATH=/home/helm/.gopath
-ARG GOROOT_BASE=/home/helm/.goroot
-ENV GOROOT=$GOROOT_BASE/go
-ENV GOCACHE=/home/helm/.gocache
-ENV PATH=:$GOPATH/bin:$GOROOT/bin:$PATH
-
 ARG GO_PACKAGE_PATH=github.com/redhat-developer/helm
+
+ENV GIT_COMMITTER_NAME      devtools
+ENV GIT_COMMITTER_EMAIL     devtools@redhat.com
+
+ENV LANG                    en_US.utf8
+
+ENV GOPATH                  /go
+ENV GOROOT                  /opt/go
+ENV GOCACHE                 /tmp/.gocache
+
+ENV PATH                    $GOPATH/bin:$GOROOT/bin:$PATH
 
 RUN yum install -y --quiet --setopt=skip_missing_names_on_install=False \
     git \
@@ -20,17 +20,13 @@ RUN yum install -y --quiet --setopt=skip_missing_names_on_install=False \
     rh-python36-python-virtualenv \
     && yum clean all
 
-RUN useradd -m -d /home/helm -u 1001 -s /bin/bash -U -G root helm
-
-USER helm
-
-WORKDIR /home/helm
+WORKDIR /tmp
 
 RUN mkdir -p $GOPATH/bin
-RUN mkdir -p $GOROOT_BASE
+RUN mkdir -p $GOROOT
 RUN mkdir -p $GOCACHE
 
-RUN curl -Lo go.tar.gz https://dl.google.com/go/go1.13.1.linux-amd64.tar.gz && tar -xf go.tar.gz -C $GOROOT_BASE && rm -vf go.tar.gz
+RUN curl -Lo go.tar.gz https://dl.google.com/go/go1.13.1.linux-amd64.tar.gz && tar -xf go.tar.gz -C / && rm -vf go.tar.gz
 
 RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl $GOPATH/bin/
 
@@ -39,5 +35,7 @@ RUN mkdir -p ${GOPATH}/src/${GO_PACKAGE_PATH}/
 WORKDIR ${GOPATH}/src/${GO_PACKAGE_PATH}
 
 COPY . .
+
+RUN chmod -R go+wr $GOPATH $GOROOT $GOCACHE
 
 ENTRYPOINT [ "/bin/bash" ]
