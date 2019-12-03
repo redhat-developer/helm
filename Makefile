@@ -68,8 +68,14 @@ test: TESTFLAGS += -race -v
 test: test-style
 test: test-unit
 
+.PHONY: add-test-user-with-uid
+add-test-user-with-uid:
+	$(eval UID := $(shell set | grep ^UID | cut -d "=" -f2))
+	@-echo huser:x:$(UID):$(UID):Helm User:/tmp:/sbin/nologin >> /etc/passwd
+	@-echo huser:x:$(UID):huser >> /etc/group
+
 .PHONY: test-unit
-test-unit:
+test-unit: add-test-user-with-uid
 	@echo
 	@echo "==> Running unit tests <=="
 	GO111MODULE=on go test $(GOFLAGS) -run $(TESTS) $(PKG) $(TESTFLAGS)
