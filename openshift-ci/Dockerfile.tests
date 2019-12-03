@@ -17,7 +17,6 @@ RUN yum install -y --quiet --setopt=skip_missing_names_on_install=False \
     git \
     make \
     gcc \
-    rh-python36-python-virtualenv \
     && yum clean all
 
 WORKDIR /tmp
@@ -34,6 +33,6 @@ WORKDIR ${GOPATH}/src/${GO_PACKAGE_PATH}
 
 COPY . .
 
-RUN chmod -R go+wr $GOPATH $GOCACHE
+RUN chmod -R go+wr $GOPATH $GOCACHE /etc/passwd /etc/group
 
 ENTRYPOINT [ "/bin/bash" ]
