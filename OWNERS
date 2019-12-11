@@ -1,16 +1,21 @@
-# See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
-
-approvers:
-- sbose78
-- baijum
-- akashshinde
-- Avni-Sharma
-
-reviewers:
-- sbose78
-- baijum
-- akashshinde
-- Avni-Sharma
-- pmacik
-- ldimaggi
-- bamachrn
+maintainers:
+  - adamreese
+  - bacongobbler
+  - fibonacci1729
+  - hickeyma
+  - jdolitsky
+  - marckhouzam
+  - mattfarina
+  - michelleN
+  - prydonius
+  - SlickNik
+  - technosophos
+  - thomastaylor312
+  - viglesiasce
+emeritus:
+  - jascott1
+  - migmartri
+  - nebril
+  - seh
+  - vaikas-google
+  - rimusz
