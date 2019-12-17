@@ -2,15 +2,14 @@
 
 include ./Makefile
 
+export GOCACHE := $(PWD)/openshift-ci/.gocache
+export XDG_CACHE_HOME := $(PWD)/openshift-ci/.xdg-cache
+
 $(GOLANGCI_LINT):
 	(cd /; GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint@master)
 
 .PHONY: lint
 lint: test-style
 
-.PHONY: -xdg-cache-home
--xdg-cache-home:
-	$(eval export XDG_CACHE_HOME := $(PWD)/.cache)
-
 .PHONY: unit
-unit: -xdg-cache-home test-unit
+unit: test-unit
