@@ -76,4 +76,3 @@ func SortByDate(list []*rspb.Release) {
 func SortByRevision(list []*rspb.Release) {
 	sort.Sort(ByRevision{list})
 }
-
