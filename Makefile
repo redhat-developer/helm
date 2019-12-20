@@ -47,6 +47,9 @@ endif
 LDFLAGS += -X helm.sh/helm/v3/internal/version.gitCommit=${GIT_COMMIT}
 LDFLAGS += -X helm.sh/helm/v3/internal/version.gitTreeState=${GIT_DIRTY}
 
+$(GOLANGCI_LINT):
+	(cd /; GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint)
+
 .PHONY: all
 all: build
 
@@ -117,9 +120,6 @@ format: $(GOIMPORTS)
 
 $(GOX):
 	(cd /; GO111MODULE=on go get -u github.com/mitchellh/gox)
-
-$(GOLANGCI_LINT):
-	(cd /; GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint)
 
 $(GOIMPORTS):
 	(cd /; GO111MODULE=on go get -u golang.org/x/tools/cmd/goimports)

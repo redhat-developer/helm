@@ -45,7 +45,7 @@ func Chartfile(linter *support.Linter) {
 		return
 	}
 
-	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartNamePresence(chartFile))
+	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartName(chartFile))
 	linter.RunLinterRule(support.ErrorSev, chartFileName, validateChartNameDirMatch(linter.ChartDir, chartFile))
 
 	// Chart metadata
@@ -75,7 +75,7 @@ func validateChartYamlFormat(chartFileError error) error {
 	return nil
 }
 
-func validateChartNamePresence(cf *chart.Metadata) error {
+func validateChartName(cf *chart.Metadata) error {
 	if cf.Name == "" {
 		return errors.New("name is required")
 	}
