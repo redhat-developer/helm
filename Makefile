@@ -141,8 +141,6 @@ build-cross:
 	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -mod=vendor -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -mod=vendor -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -mod=vendor -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -mod=vendor -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -mod=vendor -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 
 .PHONY: dist
 dist:
