@@ -8,6 +8,7 @@ GOPATH        = $(shell go env GOPATH)
 DEP           = $(GOPATH)/bin/dep
 GOX           = $(GOPATH)/bin/gox
 GOIMPORTS     = $(GOPATH)/bin/goimports
+ARCH          = $(shell uname -p)
 
 ACCEPTANCE_DIR:=../acceptance-testing
 # To specify the subset of acceptance tests to run. '.' means all tests
