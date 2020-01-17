@@ -8,6 +8,7 @@ DEP           = $(GOPATH)/bin/dep
 GOX           = $(GOPATH)/bin/gox
 GOIMPORTS     = $(GOPATH)/bin/goimports
 GOLANGCI_LINT = $(GOPATH)/bin/golangci-lint
+ARCH          = $(shell uname -p)
 
 ACCEPTANCE_DIR:=$(GOPATH)/src/helm.sh/acceptance-testing
 # To specify the subset of acceptance tests to run. '.' means all tests
@@ -67,7 +68,11 @@ $(BINDIR)/$(BINNAME): $(SRC)
 
 .PHONY: test
 test: build
+ifeq ($(ARCH),s390x)
+test: TESTFLAGS += -v
+else
 test: TESTFLAGS += -race -v
+endif
 test: test-style
 test: test-unit
 
