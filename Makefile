@@ -8,6 +8,7 @@ GOPATH        = $(shell go env GOPATH)
 DEP           = $(GOPATH)/bin/dep
 GOX           = $(GOPATH)/bin/gox
 GOIMPORTS     = $(GOPATH)/bin/goimports
+
 GOLANGCI_LINT = $(GOPATH)/bin/golangci-lint
 ARCH          = $(shell uname -p)
 
