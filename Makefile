@@ -1,6 +1,6 @@
 BINDIR     := $(CURDIR)/bin
 DIST_DIRS  := find * -type d -exec
-TARGETS    := darwin/amd64 linux/amd64 linux/386 linux/arm linux/arm64 linux/ppc64le windows/amd64
+TARGETS    := darwin/amd64 linux/amd64 linux/386 linux/arm linux/arm64 linux/ppc64le linux/s390x windows/amd64
 BINNAME    ?= helm
 
 GOPATH        = $(shell go env GOPATH)
@@ -8,6 +8,7 @@ DEP           = $(GOPATH)/bin/dep
 GOX           = $(GOPATH)/bin/gox
 GOIMPORTS     = $(GOPATH)/bin/goimports
 GOLANGCI_LINT = $(GOPATH)/bin/golangci-lint
+ARCH          = $(shell uname -p)
 
 ACCEPTANCE_DIR:=$(GOPATH)/src/helm.sh/acceptance-testing
 # To specify the subset of acceptance tests to run. '.' means all tests
@@ -67,7 +68,11 @@ $(BINDIR)/$(BINNAME): $(SRC)
 
 .PHONY: test
 test: build
+ifeq ($(ARCH),s390x)
+test: TESTFLAGS += -v
+else
 test: TESTFLAGS += -race -v
+endif
 test: test-style
 test: test-unit
 
@@ -136,6 +141,8 @@ build-cross:
 	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -mod=vendor -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -mod=vendor -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -mod=vendor -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GO111MODULE=on CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -mod=vendor -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GO111MODULE=on CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -mod=vendor -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 
 .PHONY: dist
 dist:
