@@ -1,21 +1,23 @@
-maintainers:
-  - adamreese
-  - bacongobbler
-  - fibonacci1729
-  - hickeyma
-  - jdolitsky
-  - marckhouzam
-  - mattfarina
-  - michelleN
-  - prydonius
-  - SlickNik
-  - technosophos
-  - thomastaylor312
-  - viglesiasce
-emeritus:
-  - jascott1
-  - migmartri
-  - nebril
-  - seh
-  - vaikas-google
-  - rimusz
+# See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
+
+approvers:
+- sbose78
+- baijum
+- otaviof
+- akashshinde
+- DhritiShikhar
+- Avni-Sharma
+- isutton
+
+reviewers:
+- sbose78
+- baijum
+- otaviof
+- akashshinde
+- DhritiShikhar
+- Avni-Sharma
+- pmacik
+- ldimaggi
+- pratikjagrut
+- isutton
+- bamachrn
