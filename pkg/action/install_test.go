@@ -306,7 +306,7 @@ func TestInstallRelease_KubeVersion(t *testing.T) {
 	vals = map[string]interface{}{}
 	_, err = instAction.Run(buildChart(withKube(">=99.0.0")), vals)
 	is.Error(err)
-	is.Contains(err.Error(), "chart requires kubernetesVersion")
+	is.Contains(err.Error(), "chart requires kubeVersion")
 }
 
 func TestInstallRelease_Wait(t *testing.T) {
@@ -471,6 +471,46 @@ func TestInstallReleaseOutputDir(t *testing.T) {
 	is.True(os.IsNotExist(err))
 }
 
+func TestInstallOutputDirWithReleaseName(t *testing.T) {
+	is := assert.New(t)
+	instAction := installAction(t)
+	vals := map[string]interface{}{}
+
+	dir, err := ioutil.TempDir("", "output-dir")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	instAction.OutputDir = dir
+	instAction.UseReleaseName = true
+	instAction.ReleaseName = "madra"
+
+	newDir := filepath.Join(dir, instAction.ReleaseName)
+
+	_, err = instAction.Run(buildChart(withSampleTemplates(), withMultipleManifestTemplate()), vals)
+	if err != nil {
+		t.Fatalf("Failed install: %s", err)
+	}
+
+	_, err = os.Stat(filepath.Join(newDir, "hello/templates/goodbye"))
+	is.NoError(err)
+
+	_, err = os.Stat(filepath.Join(newDir, "hello/templates/hello"))
+	is.NoError(err)
+
+	_, err = os.Stat(filepath.Join(newDir, "hello/templates/with-partials"))
+	is.NoError(err)
+
+	_, err = os.Stat(filepath.Join(newDir, "hello/templates/rbac"))
+	is.NoError(err)
+
+	test.AssertGoldenFile(t, filepath.Join(newDir, "hello/templates/rbac"), "rbac.txt")
+
+	_, err = os.Stat(filepath.Join(newDir, "hello/templates/empty"))
+	is.True(os.IsNotExist(err))
+}
+
 func TestNameAndChart(t *testing.T) {
 	is := assert.New(t)
 	instAction := installAction(t)
@@ -505,6 +545,14 @@ func TestNameAndChart(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 	is.Equal("must either provide a name or specify --generate-name", err.Error())
+
+	instAction.NameTemplate = ""
+	instAction.ReleaseName = ""
+	_, _, err = instAction.NameAndChart([]string{"foo", chartName, "bar"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	is.Equal("expected at most two arguments, unexpected arguments: bar", err.Error())
 }
 
 func TestNameAndChartGenerateName(t *testing.T) {
