@@ -50,25 +50,6 @@ func (ts *tagStore) All(ctx context.Context) ([]string, error) {
 	return tags, nil
 }
 
-// exists returns true if the specified manifest tag exists in the repository.
-func (ts *tagStore) exists(ctx context.Context, tag string) (bool, error) {
-	tagPath, err := pathFor(manifestTagCurrentPathSpec{
-		name: ts.repository.Named().Name(),
-		tag:  tag,
-	})
-
-	if err != nil {
-		return false, err
-	}
-
-	exists, err := exists(ctx, ts.blobStore.driver, tagPath)
-	if err != nil {
-		return false, err
-	}
-
-	return exists, nil
-}
-
 // Tag tags the digest with the given tag, updating the the store to point at
 // the current tag. The digest must point to a manifest.
 func (ts *tagStore) Tag(ctx context.Context, tag string, desc distribution.Descriptor) error {
@@ -195,4 +176,38 @@ func (ts *tagStore) Lookup(ctx context.Context, desc distribution.Descriptor) ([
 	}
 
 	return tags, nil
+}
+
+func (ts *tagStore) ManifestDigests(ctx context.Context, tag string) ([]digest.Digest, error) {
+	var tagLinkPath = func(name string, dgst digest.Digest) (string, error) {
+		return pathFor(manifestTagIndexEntryLinkPathSpec{
+			name:     name,
+			tag:      tag,
+			revision: dgst,
+		})
+	}
+	lbs := &linkedBlobStore{
+		blobStore: ts.blobStore,
+		blobAccessController: &linkedBlobStatter{
+			blobStore:   ts.blobStore,
+			repository:  ts.repository,
+			linkPathFns: []linkPathFunc{manifestRevisionLinkPath},
+		},
+		repository:  ts.repository,
+		ctx:         ctx,
+		linkPathFns: []linkPathFunc{tagLinkPath},
+		linkDirectoryPathSpec: manifestTagIndexPathSpec{
+			name: ts.repository.Named().Name(),
+			tag:  tag,
+		},
+	}
+	var dgsts []digest.Digest
+	err := lbs.Enumerate(ctx, func(dgst digest.Digest) error {
+		dgsts = append(dgsts, dgst)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return dgsts, nil
 }

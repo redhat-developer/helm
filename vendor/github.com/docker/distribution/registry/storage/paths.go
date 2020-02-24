@@ -87,6 +87,7 @@ const (
 // 	Blobs:
 //
 // 	layerLinkPathSpec:            <root>/v2/repositories/<name>/_layers/<algorithm>/<hex digest>/link
+// 	layersPathSpec:               <root>/v2/repositories/<name>/_layers
 //
 //	Uploads:
 //
@@ -133,10 +134,7 @@ func pathFor(spec pathSpec) (string, error) {
 
 		return path.Join(append(append(repoPrefix, v.name, "_manifests", "revisions"), components...)...), nil
 	case manifestRevisionLinkPathSpec:
-		root, err := pathFor(manifestRevisionPathSpec{
-			name:     v.name,
-			revision: v.revision,
-		})
+		root, err := pathFor(manifestRevisionPathSpec(v))
 
 		if err != nil {
 			return "", err
@@ -156,10 +154,7 @@ func pathFor(spec pathSpec) (string, error) {
 
 		return path.Join(root, v.tag), nil
 	case manifestTagCurrentPathSpec:
-		root, err := pathFor(manifestTagPathSpec{
-			name: v.name,
-			tag:  v.tag,
-		})
+		root, err := pathFor(manifestTagPathSpec(v))
 
 		if err != nil {
 			return "", err
@@ -167,10 +162,7 @@ func pathFor(spec pathSpec) (string, error) {
 
 		return path.Join(root, "current", "link"), nil
 	case manifestTagIndexPathSpec:
-		root, err := pathFor(manifestTagPathSpec{
-			name: v.name,
-			tag:  v.tag,
-		})
+		root, err := pathFor(manifestTagPathSpec(v))
 
 		if err != nil {
 			return "", err
@@ -178,11 +170,7 @@ func pathFor(spec pathSpec) (string, error) {
 
 		return path.Join(root, "index"), nil
 	case manifestTagIndexEntryLinkPathSpec:
-		root, err := pathFor(manifestTagIndexEntryPathSpec{
-			name:     v.name,
-			tag:      v.tag,
-			revision: v.revision,
-		})
+		root, err := pathFor(manifestTagIndexEntryPathSpec(v))
 
 		if err != nil {
 			return "", err
@@ -219,6 +207,8 @@ func pathFor(spec pathSpec) (string, error) {
 		blobLinkPathComponents := append(repoPrefix, v.name, "_layers")
 
 		return path.Join(path.Join(append(blobLinkPathComponents, components...)...), "link"), nil
+	case layersPathSpec:
+		return path.Join(append(repoPrefix, v.name, "_layers")...), nil
 	case blobsPathSpec:
 		blobsPathPrefix := append(rootPrefix, "blobs")
 		return path.Join(blobsPathPrefix...), nil
@@ -347,6 +337,13 @@ type manifestTagIndexEntryLinkPathSpec struct {
 }
 
 func (manifestTagIndexEntryLinkPathSpec) pathSpec() {}
+
+// layersPathSpec contains the path for the layers inside a repo
+type layersPathSpec struct {
+	name string
+}
+
+func (layersPathSpec) pathSpec() {}
 
 // blobLinkPathSpec specifies a path for a blob link, which is a file with a
 // blob id. The blob link will contain a content addressable blob id reference
