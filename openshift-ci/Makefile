@@ -5,11 +5,16 @@ include ./Makefile
 export GOCACHE := $(PWD)/openshift-ci/.gocache
 export XDG_CACHE_HOME := $(PWD)/openshift-ci/.xdg-cache
 
+export GOLANGCI_LINT_VERSION := 1.21.0
+
 $(GOLANGCI_LINT):
-	(cd /; GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint@master)
+	cd /
+	curl -sSL https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/golangci-lint-$(GOLANGCI_LINT_VERSION)-linux-amd64.tar.gz | tar xz
+	mv golangci-lint-$(GOLANGCI_LINT_VERSION)-linux-amd64/golangci-lint $(GOLANGCI_LINT)
+	rm -rf golangci-lint-$(GOLANGCI_LINT_VERSION)-linux-amd64
 
 .PHONY: lint
-lint: test-style
+lint: $(GOLANGCI_LINT) test-style
 
 .PHONY: unit
 unit: test-unit
