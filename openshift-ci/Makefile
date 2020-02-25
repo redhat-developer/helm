@@ -6,10 +6,10 @@ export GOCACHE := $(PWD)/openshift-ci/.gocache
 export XDG_CACHE_HOME := $(PWD)/openshift-ci/.xdg-cache
 
 $(GOLANGCI_LINT):
-	(cd /; GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint@master)
+	(cd /; GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint@v1.21.0)
 
 .PHONY: lint
-lint: test-style
+lint: $(GOLANGCI_LINT) test-style
 
 .PHONY: unit
 unit: test-unit
