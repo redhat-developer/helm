@@ -14,7 +14,7 @@ $(GOLANGCI_LINT):
 	rm -rf golangci-lint-$(GOLANGCI_LINT_VERSION)-linux-amd64
 
 .PHONY: lint
-lint: test-style
+lint: $(GOLANGCI_LINT) test-style
 
 .PHONY: unit
 unit: test-unit
