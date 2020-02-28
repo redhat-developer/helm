@@ -32,6 +32,11 @@ type Options struct {
 	CertFile string
 	// Client-only options
 	InsecureSkipVerify bool
+	// Overrides the server name used to verify the hostname on the returned
+	// certificates from the server.
+	ServerName string
+	// Server-only options
+	ClientAuth tls.ClientAuthType
 }
 
 // ClientConfig returns a TLS configuration for use by a Helm client.
@@ -58,5 +63,26 @@ func ClientConfig(opts Options) (cfg *tls.Config, err error) {
 		ServerName:         opts.ServerName,
 		RootCAs:            pool,
 	}
+	return cfg, nil
+}
+
+// ServerConfig returns a TLS configuration for use by the Tiller server.
+func ServerConfig(opts Options) (cfg *tls.Config, err error) {
+	var cert *tls.Certificate
+	var pool *x509.CertPool
+
+	if cert, err = CertFromFilePair(opts.CertFile, opts.KeyFile); err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.Wrapf(err, "could not load x509 key pair (cert: %q, key: %q)", opts.CertFile, opts.KeyFile)
+		}
+		return nil, errors.Wrapf(err, "could not read x509 key pair (cert: %q, key: %q)", opts.CertFile, opts.KeyFile)
+	}
+	if opts.ClientAuth >= tls.VerifyClientCertIfGiven && opts.CaCertFile != "" {
+		if pool, err = CertPoolFromFile(opts.CaCertFile); err != nil {
+			return nil, err
+		}
+	}
+
+	cfg = &tls.Config{MinVersion: tls.VersionTLS12, ClientAuth: opts.ClientAuth, Certificates: []tls.Certificate{*cert}, ClientCAs: pool}
 	return cfg, nil
 }
