@@ -1,7 +1,7 @@
-FROM registry.access.redhat.com/ubi7/ubi:latest
+FROM registry.access.redhat.com/ubi8/ubi:latest
 
 ARG GO_PACKAGE_PATH=github.com/redhat-developer/helm
-ARG GO_VERSION=1.13.1
+ARG GO_VERSION=1.13.8
 
 ENV GIT_COMMITTER_NAME      devtools
 ENV GIT_COMMITTER_EMAIL     devtools@redhat.com
