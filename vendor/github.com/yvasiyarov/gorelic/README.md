@@ -30,12 +30,23 @@ agent.Run()
 
 ```
 
+### Middleware  
+If you using Beego, Martini, Revel or Gin framework you can hook up gorelic with your application by using the following middleware:
+- https://github.com/yvasiyarov/beego_gorelic   
+- https://github.com/yvasiyarov/martini_gorelic   
+- https://github.com/yvasiyarov/gocraft_gorelic   
+- http://wiki.colar.net/revel_newelic
+- https://github.com/jingweno/negroni-gorelic
+- https://github.com/brandfolder/gin-gorelic
+   
+
 ### Configuration  
 - NewrelicLicense - its the only mandatory setting of this agent.
 - NewrelicName - component name in NewRelic dashboard. Default value: "Go daemon"
 - NewrelicPollInterval - how often metrics will be sent to NewRelic. Default value: 60 seconds
 - Verbose - print some usefull for debugging information. Default value: false
 - CollectGcStat - should agent collect garbage collector statistic or not. Default value: true
+- CollectHTTPStat - should agent collect HTTP metrics. Default value: false
 - CollectMemoryStat - should agent collect memory allocator statistic or not. Default value: true
 - GCPollInterval - how often should GC statistic collected. Default value: 10 seconds. It has performance impact. For more information, please, see metrics documentation.
 - MemoryAllocatorPollInterval - how often should memory allocator statistic collected. Default value: 60 seconds. It has performance impact. For more information, please, read metrics documentation.
@@ -95,6 +106,13 @@ This routine calls stoptheworld() internally and it block everything. So, please
 - max response time  
 - 75%, 90%, 95% percentiles for response time
  
+
+In order to collect HTTP metrics, handler functions must be wrapped using WrapHTTPHandlerFunc:
+
+```go
+http.HandleFunc("/", agent.WrapHTTPHandlerFunc(handler))
+```
+
 ## TODO
 - Collect per-size allocation statistic
 - Collect user defined metrics

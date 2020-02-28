@@ -12,11 +12,17 @@ import (
 	"syscall"
 	"time"
 
-	"rsc.io/letsencrypt"
-
 	"github.com/Shopify/logrus-bugsnag"
 	logstash "github.com/bshuster-repo/logrus-logstash-hook"
 	"github.com/bugsnag/bugsnag-go"
+	"github.com/docker/go-metrics"
+	gorhandlers "github.com/gorilla/handlers"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"github.com/yvasiyarov/gorelic"
+	"golang.org/x/crypto/acme"
+	"golang.org/x/crypto/acme/autocert"
+
 	"github.com/docker/distribution/configuration"
 	dcontext "github.com/docker/distribution/context"
 	"github.com/docker/distribution/health"
@@ -24,11 +30,6 @@ import (
 	"github.com/docker/distribution/registry/listener"
 	"github.com/docker/distribution/uuid"
 	"github.com/docker/distribution/version"
-	"github.com/docker/go-metrics"
-	gorhandlers "github.com/gorilla/handlers"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
-	"github.com/yvasiyarov/gorelic"
 )
 
 // this channel gets notified when process receives signal. It is global to ease unit testing
@@ -135,10 +136,26 @@ func (registry *Registry) ListenAndServe() error {
 	}
 
 	if config.HTTP.TLS.Certificate != "" || config.HTTP.TLS.LetsEncrypt.CacheFile != "" {
+		var tlsMinVersion uint16
+		if config.HTTP.TLS.MinimumTLS == "" {
+			tlsMinVersion = tls.VersionTLS10
+		} else {
+			switch config.HTTP.TLS.MinimumTLS {
+			case "tls1.0":
+				tlsMinVersion = tls.VersionTLS10
+			case "tls1.1":
+				tlsMinVersion = tls.VersionTLS11
+			case "tls1.2":
+				tlsMinVersion = tls.VersionTLS12
+			default:
+				return fmt.Errorf("unknown minimum TLS level '%s' specified for http.tls.minimumtls", config.HTTP.TLS.MinimumTLS)
+			}
+			dcontext.GetLogger(registry.app).Infof("restricting TLS to %s or higher", config.HTTP.TLS.MinimumTLS)
+		}
 		tlsConf := &tls.Config{
 			ClientAuth:               tls.NoClientCert,
 			NextProtos:               nextProtos(config),
-			MinVersion:               tls.VersionTLS10,
+			MinVersion:               tlsMinVersion,
 			PreferServerCipherSuites: true,
 			CipherSuites: []uint16{
 				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -154,19 +171,14 @@ func (registry *Registry) ListenAndServe() error {
 			if config.HTTP.TLS.Certificate != "" {
 				return fmt.Errorf("cannot specify both certificate and Let's Encrypt")
 			}
-			var m letsencrypt.Manager
-			if err := m.CacheFile(config.HTTP.TLS.LetsEncrypt.CacheFile); err != nil {
-				return err
-			}
-			if !m.Registered() {
-				if err := m.Register(config.HTTP.TLS.LetsEncrypt.Email, nil); err != nil {
-					return err
-				}
-			}
-			if len(config.HTTP.TLS.LetsEncrypt.Hosts) > 0 {
-				m.SetHosts(config.HTTP.TLS.LetsEncrypt.Hosts)
+			m := &autocert.Manager{
+				HostPolicy: autocert.HostWhitelist(config.HTTP.TLS.LetsEncrypt.Hosts...),
+				Cache:      autocert.DirCache(config.HTTP.TLS.LetsEncrypt.CacheFile),
+				Email:      config.HTTP.TLS.LetsEncrypt.Email,
+				Prompt:     autocert.AcceptTOS,
 			}
 			tlsConf.GetCertificate = m.GetCertificate
+			tlsConf.NextProtos = append(tlsConf.NextProtos, acme.ALPNProto)
 		} else {
 			tlsConf.Certificates = make([]tls.Certificate, 1)
 			tlsConf.Certificates[0], err = tls.LoadX509KeyPair(config.HTTP.TLS.Certificate, config.HTTP.TLS.Key)
@@ -185,7 +197,7 @@ func (registry *Registry) ListenAndServe() error {
 				}
 
 				if ok := pool.AppendCertsFromPEM(caPem); !ok {
-					return fmt.Errorf("Could not add CA to pool")
+					return fmt.Errorf("could not add CA to pool")
 				}
 			}
 

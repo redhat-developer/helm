@@ -328,7 +328,7 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 	var ok bool
 	app.repoRemover, ok = app.registry.(distribution.RepositoryRemover)
 	if !ok {
-		dcontext.GetLogger(app).Warnf("Registry does not implement RempositoryRemover. Will not be able to delete repos and tags")
+		dcontext.GetLogger(app).Warnf("Registry does not implement RepositoryRemover. Will not be able to delete repos and tags")
 	}
 
 	return app
@@ -753,20 +753,18 @@ func (app *App) logError(ctx context.Context, errors errcode.Errors) {
 	for _, e1 := range errors {
 		var c context.Context
 
-		switch e1.(type) {
+		switch e := e1.(type) {
 		case errcode.Error:
-			e, _ := e1.(errcode.Error)
 			c = context.WithValue(ctx, errCodeKey{}, e.Code)
 			c = context.WithValue(c, errMessageKey{}, e.Message)
 			c = context.WithValue(c, errDetailKey{}, e.Detail)
 		case errcode.ErrorCode:
-			e, _ := e1.(errcode.ErrorCode)
 			c = context.WithValue(ctx, errCodeKey{}, e)
 			c = context.WithValue(c, errMessageKey{}, e.Message())
 		default:
 			// just normal go 'error'
 			c = context.WithValue(ctx, errCodeKey{}, errcode.ErrorCodeUnknown)
-			c = context.WithValue(c, errMessageKey{}, e1.Error())
+			c = context.WithValue(c, errMessageKey{}, e.Error())
 		}
 
 		c = dcontext.WithLogger(c, dcontext.GetLogger(c,
@@ -864,7 +862,7 @@ func (app *App) authorized(w http.ResponseWriter, r *http.Request, context *Cont
 		return err
 	}
 
-	dcontext.GetLogger(ctx).Info("authorized request")
+	dcontext.GetLogger(ctx, auth.UserNameKey).Info("authorized request")
 	// TODO(stevvooe): This pattern needs to be cleaned up a bit. One context
 	// should be replaced by another, rather than replacing the context on a
 	// mutable object.
@@ -898,7 +896,7 @@ func (app *App) nameRequired(r *http.Request) bool {
 func apiBase(w http.ResponseWriter, r *http.Request) {
 	const emptyJSON = "{}"
 	// Provide a simple /v2/ 200 OK response with empty json response.
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", fmt.Sprint(len(emptyJSON)))
 
 	fmt.Fprint(w, emptyJSON)
