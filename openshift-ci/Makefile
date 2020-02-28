@@ -5,6 +5,8 @@ include ./Makefile
 export GOCACHE := $(PWD)/openshift-ci/.gocache
 export XDG_CACHE_HOME := $(PWD)/openshift-ci/.xdg-cache
 
+GOLANGCI_LINT := $(GOPATH)/bin/golangci-lint
+
 export GOLANGCI_LINT_VERSION := 1.21.0
 
 $(GOLANGCI_LINT):
