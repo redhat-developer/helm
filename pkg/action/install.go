@@ -86,6 +86,7 @@ type Install struct {
 	SkipCRDs                 bool
 	SubNotes                 bool
 	DisableOpenAPIValidation bool
+	IncludeCRDs              bool
 	// APIVersions allows a manual set of supported API Versions to be passed
 	// (for things like templating). These are ignored if ClientOnly is false
 	APIVersions chartutil.VersionSet
