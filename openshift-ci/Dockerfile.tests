@@ -40,7 +40,3 @@ COPY . .
 RUN git clone --depth=1 https://github.com/ldimaggi/acceptance-testing.git
 
 RUN chmod -R go+wr $GOPATH $GOCACHE /etc/passwd /etc/group
-
-RUN make build
-
-ENTRYPOINT [ "/bin/bash" ]
