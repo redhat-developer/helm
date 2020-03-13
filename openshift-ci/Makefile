@@ -7,6 +7,11 @@ export XDG_CACHE_HOME := $(PWD)/openshift-ci/.xdg-cache
 
 export GOLANGCI_LINT_VERSION := 1.21.0
 
+export ACCEPTANCE_DIR := $(CURDIR)/acceptance-testing
+export ACCEPTANCE_RUN_TESTS := repos.robot
+export ROBOT_HELM_V3 := 1
+export ROBOT_DEBUG_LEVEL := 3
+
 $(GOLANGCI_LINT):
 	cd /
 	curl -sSL https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/golangci-lint-$(GOLANGCI_LINT_VERSION)-linux-amd64.tar.gz | tar xz
