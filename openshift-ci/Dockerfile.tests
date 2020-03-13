@@ -13,7 +13,7 @@ ENV GOCACHE                 /tmp/.gocache
 
 ENV PATH                    $GOPATH/bin:/usr/local/go/bin:$PATH
 
-RUN yum install -y --quiet --setopt=skip_missing_names_on_install=False \
+RUN yum install -y \
     git \
     make \
     gcc \
