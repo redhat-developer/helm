@@ -17,9 +17,10 @@ RUN yum install -y \
     git \
     make \
     gcc \
-    python36 \
-    python3-virtualenv \
+    python3-pip \
     && yum clean all
+
+RUN pip3 install virtualenv
 
 WORKDIR /tmp
 
