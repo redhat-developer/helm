@@ -38,6 +38,6 @@ WORKDIR ${GOPATH}/src/${GO_PACKAGE_PATH}
 
 COPY . .
 
-RUN git clone --depth=1 https://github.com/ldimaggi/acceptance-testing.git
+RUN if [ ! -d 'acceptance-testing' ]; then git clone --depth=1 https://github.com/ldimaggi/acceptance-testing.git acceptance-testing; else cd acceptance-testing; git pull; fi
 
 RUN chmod -R go+wr $GOPATH $GOCACHE /etc/passwd /etc/group
