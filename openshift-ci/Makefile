@@ -12,6 +12,16 @@ export ACCEPTANCE_RUN_TESTS := repos.robot
 export ROBOT_HELM_V3 := 1
 export ROBOT_DEBUG_LEVEL := 3
 
+ifdef BINDIR
+	export BINDIR := $(shell echo $$BINDIR)
+	export DO_NOT_BUILD_HELM := 1
+endif
+
+ifndef BINDIR
+	export BINDIR := $(CURDIR)/bin
+	export DO_NOT_BUILD_HELM := 0
+endif
+
 $(GOLANGCI_LINT):
 	cd /
 	curl -sSL https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/golangci-lint-$(GOLANGCI_LINT_VERSION)-linux-amd64.tar.gz | tar xz
@@ -23,3 +33,18 @@ lint: $(GOLANGCI_LINT) test-style
 
 .PHONY: unit
 unit: test-unit
+
+.PHONY: acceptance
+ifeq ($(DO_NOT_BUILD_HELM), 1)
+acceptance:
+else
+acceptance: TARGETS = linux/amd64
+acceptance: build build-cross
+endif
+	@if [ -d "${ACCEPTANCE_DIR}" ]; then \
+		cd ${ACCEPTANCE_DIR} && \
+			ROBOT_RUN_TESTS=$(ACCEPTANCE_RUN_TESTS) ROBOT_HELM_PATH=$(BINDIR) make acceptance; \
+	else \
+		echo "You must clone the acceptance_testing repo under $(ACCEPTANCE_DIR)"; \
+		echo "You can find the acceptance_testing repo at https://github.com/helm/acceptance-testing"; \
+	fi
