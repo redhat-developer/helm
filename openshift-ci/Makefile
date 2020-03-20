@@ -2,25 +2,11 @@
 
 include ./Makefile
 
-export GOCACHE := $(PWD)/openshift-ci/.gocache
-export XDG_CACHE_HOME := $(PWD)/openshift-ci/.xdg-cache
+export OPENSHIFT_CI := $(CURDIR)/openshift-ci
+export GOCACHE := $(OPENSHIFT_CI)/.gocache
+export XDG_CACHE_HOME := $(OPENSHIFT_CI)/.xdg-cache
 
 export GOLANGCI_LINT_VERSION := 1.21.0
-
-export ACCEPTANCE_DIR := $(CURDIR)/acceptance-testing
-export ACCEPTANCE_RUN_TESTS := repos.robot
-export ROBOT_HELM_V3 := 1
-export ROBOT_DEBUG_LEVEL := 3
-
-ifdef BINDIR
-	export BINDIR := $(shell echo $$BINDIR)
-	export DO_NOT_BUILD_HELM := 1
-endif
-
-ifndef BINDIR
-	export BINDIR := $(CURDIR)/bin
-	export DO_NOT_BUILD_HELM := 0
-endif
 
 $(GOLANGCI_LINT):
 	cd /
@@ -35,16 +21,10 @@ lint: $(GOLANGCI_LINT) test-style
 unit: test-unit
 
 .PHONY: acceptance
-ifeq ($(DO_NOT_BUILD_HELM), 1)
 acceptance:
-else
-acceptance: TARGETS = linux/amd64
-acceptance: build build-cross
-endif
-	@if [ -d "${ACCEPTANCE_DIR}" ]; then \
-		cd ${ACCEPTANCE_DIR} && \
-			ROBOT_RUN_TESTS=$(ACCEPTANCE_RUN_TESTS) ROBOT_HELM_PATH=$(BINDIR) make acceptance; \
-	else \
-		echo "You must clone the acceptance_testing repo under $(ACCEPTANCE_DIR)"; \
-		echo "You can find the acceptance_testing repo at https://github.com/helm/acceptance-testing"; \
-	fi
+	CURDIR=$(CURDIR) $(OPENSHIFT_CI)/acceptance-tests.sh
+
+.PHONY: clean-cache
+clean-cache:
+	rm -rf $(GOCACHE)
+	rm -rf $(XDG_CACHE_HOME)
