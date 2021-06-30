@@ -1,21 +1,18 @@
-maintainers:
-  - adamreese
-  - bacongobbler
-  - fibonacci1729
-  - hickeyma
-  - jdolitsky
-  - marckhouzam
-  - mattfarina
-  - prydonius
-  - SlickNik
-  - technosophos
-  - viglesiasce
-emeritus:
-  - jascott1
-  - michelleN
-  - migmartri
-  - nebril
-  - rimusz
-  - seh
-  - thomastaylor312
-  - vaikas-google
+# See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
+
+approvers:
+- dperaza4dustbit
+- zonggen
+- mmulholla
+- pedjak
+
+reviewers:
+- sbose78
+- baijum
+- isutton
+- pmacik
+- bamachrn
+- dperaza4dustbit
+- zonggen
+- mmulholla
+- pedjak
