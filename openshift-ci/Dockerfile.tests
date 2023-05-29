@@ -1,0 +1,44 @@
+FROM registry.access.redhat.com/ubi8/ubi:latest
+
+ARG GO_PACKAGE_PATH=github.com/redhat-developer/helm
+ARG GO_VERSION=1.18.9
+
+ENV GIT_COMMITTER_NAME      devtools
+ENV GIT_COMMITTER_EMAIL     devtools@redhat.com
+
+ENV LANG                    C.UTF-8
+
+ENV GOPATH                  /go
+ENV GOCACHE                 /tmp/.gocache
+
+ENV PATH                    $GOPATH/bin:/usr/local/go/bin:$PATH
+
+RUN yum install -y \
+    git \
+    make \
+    gcc \
+    python3 \
+    python3-pip \
+    && yum clean all
+
+RUN pip3 install -q virtualenv
+
+WORKDIR /tmp
+
+RUN mkdir -p $GOPATH/bin $GOCACHE
+
+RUN curl -Lo go.tar.gz https://dl.google.com/go/go$GO_VERSION.linux-amd64.tar.gz && tar -xf go.tar.gz -C /usr/local && rm -vf go.tar.gz
+
+RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl $GOPATH/bin/
+
+RUN curl -Lo /usr/local/bin/kind https://github.com/kubernetes-sigs/kind/releases/download/v0.7.0/kind-$(uname)-amd64 && chmod +x /usr/local/bin/kind
+
+RUN mkdir -p ${GOPATH}/src/${GO_PACKAGE_PATH}/
+
+WORKDIR ${GOPATH}/src/${GO_PACKAGE_PATH}
+
+COPY . .
+
+RUN if [ ! -d 'acceptance-testing' ]; then git clone -b helm-3.11-openshift --depth=1 https://github.com/redhat-developer/helm-acceptance-testing.git acceptance-testing; else cd acceptance-testing; git pull; fi
+
+RUN chmod -R go+wr $GOPATH $GOCACHE /etc/passwd /etc/group
