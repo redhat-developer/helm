@@ -23,10 +23,9 @@ ENV ROBOT_OPTS              --xunit=results.xml
 RUN yum install -y \
     git \
     make \
+    gcc \
+    python3 \
     python3-pip \
-    kubectl-1.18.1 \
-    docker-ce-cli \
-    podman \
     && yum clean all
 
 RUN pip3 install -q virtualenv
