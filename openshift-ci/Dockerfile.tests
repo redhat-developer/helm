@@ -20,7 +20,7 @@ ENV  ROBOT_RUN_TESTS         .
 ENV ROBOT_HELM_PATH         /usr/bin
 ENV ROBOT_OPTS              --xunit=results.xml
 
-RUN yum install -y --quiet --setopt=skip_missing_names_on_install=False \
+RUN yum install -y \
     git \
     make \
     python3-pip \
