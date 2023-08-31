@@ -36,6 +36,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3 # pin@v3.5.3
+      with:
+          ref: release-3.11
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
@@ -69,7 +71,7 @@ jobs:
 
     - name: Send message to helm_dev slack channel
       id: notify_dev
-      if: ${{ always() && github.event_name == 'schedule' && steps.codeql_analysis.conclusion != 'success' }}
+      if: ${{ github.event_name == 'schedule' && steps.codeql_analysis.conclusion != 'success' }}
       uses: archive/github-actions-slack@v2.7.0
       with:
         slack-bot-user-oauth-access-token: ${{ secrets.SLACK_BOT_USER_OAUTH_ACCESS_TOKEN }}
@@ -77,12 +79,12 @@ jobs:
         slack-text: Failure! CodeQL analysis for Helm downstream. See '${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}'
 
     - name: Result from "Send Message to helm_dev slack channel"
-      if: ${{ always() && github.event_name == 'schedule' && steps.codeql_analysis.conclusion != 'success' }}
+      if: ${{ github.event_name == 'schedule' && steps.codeql_analysis.conclusion != 'success' }}
       run: echo "The result was ${{ steps.notify_dev.outputs.slack-result }}"
 
     - name: Send message to helm_notify slack channel
       id: notify
-      if: ${{ always() && github.event_name == 'schedule' && steps.codeql_analysis.conclusion == 'success' }}
+      if: ${{ github.event_name == 'schedule' && steps.codeql_analysis.conclusion == 'success' }}
       uses: archive/github-actions-slack@v2.7.0
       with:
         slack-bot-user-oauth-access-token: ${{ secrets.SLACK_BOT_USER_OAUTH_ACCESS_TOKEN }}
@@ -90,5 +92,5 @@ jobs:
         slack-text: Success! CodeQL analysis for Helm downstream. See '${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}'
 
     - name: Result from "Send Message to helm_notify slack channel"
-      if: ${{ always() && github.event_name == 'schedule' && steps.codeql_analysis.conclusion == 'success' }}
+      if: ${{ github.event_name == 'schedule' && steps.codeql_analysis.conclusion == 'success' }}
       run: echo "The result was ${{ steps.notify.outputs.slack-result }}"
