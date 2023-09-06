@@ -7,6 +7,5 @@
 .vscode/
 _dist/
 bin/
-vendor/
 # Ignores charts pulled for dependency build tests
 cmd/helm/testdata/testcharts/issue-7233/charts/*
