@@ -1,0 +1,32 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: helm-build-srpm-run-
+spec:
+  pipelineRef:
+    name: helm-build-srpm-pipeline
+  params:
+    - name: git_url
+      value: https://github.com/helm/helm.git
+    - name: git_revision
+      value: release-3.18
+    - name: version
+      value: ""
+    - name: output_image
+      value: quay.io/example-org/helm-rpms
+    - name: enable_prefetch
+      value: "false"
+    - name: prefetch_cmd
+      value: |
+        go env -w GOPROXY=direct; go mod vendor
+  workspaces:
+    - name: shared-workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 6Gi
+
+
+

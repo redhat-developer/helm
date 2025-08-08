@@ -1,0 +1,297 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: helm-build-pipeline
+  labels:
+    app.kubernetes.io/part-of: helm
+spec:
+  description: |
+    Build Helm CLI binaries for multiple platforms, package artifacts, generate sha256sum.txt,
+    and build a UBI-based container image containing all artifacts under /releases/*.
+
+  params:
+    - name: git_url
+      type: string
+      description: Git repository URL to clone
+    - name: git_revision
+      type: string
+      description: Git revision (branch, tag, or SHA) to checkout
+      default: main
+    - name: version
+      type: string
+      description: Version to use for tagging artifacts and image. If empty, detected from ./VERSION or git tag.
+      default: ""
+    - name: output_image
+      type: string
+      description: Fully-qualified image name to push (without tag), e.g. quay.io/org/helm
+    - name: enable_prefetch
+      type: string
+      description: If "true", run prefetch hook before build (hermetic-ready)
+      default: "false"
+    - name: prefetch_cmd
+      type: string
+      description: Optional shell command to prefetch dependencies (e.g., go mod download). Runs only if enable_prefetch=true
+      default: ""
+
+  workspaces:
+    - name: shared-workspace
+      description: Shared workspace for source and outputs
+
+  tasks:
+    - name: git-clone
+      taskRef:
+        name: git-clone
+        kind: ClusterTask
+      params:
+        - name: url
+          value: $(params.git_url)
+        - name: revision
+          value: $(params.git_revision)
+        - name: depth
+          value: "0"
+        - name: submodules
+          value: "false"
+        - name: deleteExisting
+          value: "true"
+        - name: subdirectory
+          value: source
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+
+    - name: set-version
+      runAfter: [git-clone]
+      taskSpec:
+        params:
+          - name: version
+            type: string
+        results:
+          - name: version
+            description: Resolved version string
+          - name: git-sha
+            description: Short git SHA for tagging
+        workspaces:
+          - name: ws
+        steps:
+          - name: detect-version
+            image: registry.access.redhat.com/ubi9/ubi:latest
+            workingDir: $(workspaces.ws.path)/source
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              mkdir -p "$(workspaces.ws.path)/output"
+
+              INPUT_VERSION="$(params.version)"
+              RESOLVED_VERSION=""
+              if [[ -n "${INPUT_VERSION}" ]]; then
+                RESOLVED_VERSION="${INPUT_VERSION}"
+              elif [[ -f VERSION && -s VERSION ]]; then
+                RESOLVED_VERSION="$(cat VERSION)"
+              else
+                # Try annotated/lightweight tag; fallback to describe
+                if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+                  RESOLVED_VERSION="$(git describe --tags --abbrev=0)"
+                else
+                  RESOLVED_VERSION="$(git rev-parse --short=12 HEAD)"
+                fi
+              fi
+
+              # Normalize: strip any leading 'v' from tags like v1.2.3
+              RESOLVED_VERSION="${RESOLVED_VERSION#v}"
+
+              GIT_SHA="$(git rev-parse --short=12 HEAD)"
+              SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+
+              printf "%s" "${RESOLVED_VERSION}" > "$(workspaces.ws.path)/output/VERSION"
+              printf "%s" "${RESOLVED_VERSION}" > "$(results.version.path)"
+              printf "%s" "${GIT_SHA}" > "$(results.git-sha.path)"
+              printf "%s" "${SOURCE_DATE_EPOCH}" > "$(workspaces.ws.path)/output/SOURCE_DATE_EPOCH"
+      params:
+        - name: version
+          value: $(params.version)
+      workspaces:
+        - name: ws
+          workspace: shared-workspace
+
+    - name: prefetch
+      when:
+        - input: $(params.enable_prefetch)
+          operator: in
+          values: ["true"]
+      runAfter: [git-clone]
+      taskSpec:
+        params:
+          - name: prefetch_cmd
+            type: string
+        workspaces:
+          - name: ws
+        steps:
+          - name: run-prefetch
+            image: registry.access.redhat.com/ubi9/ubi:latest
+            workingDir: $(workspaces.ws.path)/source
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              if [[ -n "$(params.prefetch_cmd)" ]]; then
+                echo "Running prefetch command"
+                bash -lc "$(params.prefetch_cmd)"
+              else
+                echo "No prefetch command provided; skipping."
+              fi
+      params:
+        - name: prefetch_cmd
+          value: $(params.prefetch_cmd)
+      workspaces:
+        - name: ws
+          workspace: shared-workspace
+
+    - name: go-build-matrix
+      runAfter: [set-version]
+      taskSpec:
+        workspaces:
+          - name: ws
+        steps:
+          - name: build
+            image: registry.access.redhat.com/ubi9/go-toolset:latest
+            env:
+              - name: CGO_ENABLED
+                value: "0"
+              - name: GOFLAGS
+                value: "-buildvcs=false -mod=vendor"
+              - name: GOPROXY
+                value: "off"
+              - name: GOSUMDB
+                value: "off"
+            workingDir: $(workspaces.ws.path)/source
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+
+              DIST_DIR="$(workspaces.ws.path)/output/dist"
+              mkdir -p "${DIST_DIR}"
+
+              build_target() {
+                local goos="$1"; shift
+                local goarch="$1"; shift
+                local outname="$1"; shift
+                echo "Building ${outname} (GOOS=${goos} GOARCH=${goarch})"
+                GOOS="${goos}" GOARCH="${goarch}" \
+                  go build -trimpath -ldflags "-s -w" ./cmd/helm -o "${DIST_DIR}/${outname}"
+              }
+
+              # Linux targets
+              build_target linux amd64 helm-linux-amd64
+              build_target linux arm64 helm-linux-arm64
+              build_target linux ppc64le helm-linux-ppc64le
+              build_target linux s390x helm-linux-s390x
+
+              # macOS targets
+              build_target darwin amd64 helm-darwin-amd64
+              build_target darwin arm64 helm-darwin-arm64
+
+              # Windows target
+              build_target windows amd64 helm-windows-amd64.exe
+
+              echo "Built artifacts:"
+              ls -l "${DIST_DIR}"
+      workspaces:
+        - name: ws
+          workspace: shared-workspace
+
+    - name: package-artifacts
+      runAfter: [go-build-matrix]
+      taskSpec:
+        workspaces:
+          - name: ws
+        steps:
+          - name: package
+            image: registry.access.redhat.com/ubi9/go-toolset:latest
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              DIST_DIR="$(workspaces.ws.path)/output/dist"
+              SRC_DIR="$(workspaces.ws.path)/source"
+              mkdir -p "${DIST_DIR}"
+
+              cd "${DIST_DIR}"
+
+              make_tgz() {
+                local file="$1"
+                local tgz="$2"
+                tar -czf "${tgz}" -C "${DIST_DIR}" "${file}"
+              }
+
+              # Package tar.gz for each binary
+              make_tgz helm-linux-amd64 helm-linux-amd64.tar.gz
+              make_tgz helm-linux-arm64 helm-linux-arm64.tar.gz
+              make_tgz helm-linux-ppc64le helm-linux-ppc64le.tar.gz
+              make_tgz helm-linux-s390x helm-linux-s390x.tar.gz
+              make_tgz helm-darwin-amd64 helm-darwin-amd64.tar.gz
+              make_tgz helm-darwin-arm64 helm-darwin-arm64.tar.gz
+              make_tgz helm-windows-amd64.exe helm-windows-amd64.tar.gz
+
+              # Windows zip of the .exe using Go (no external tools)
+              cat > /tmp/zip_windows.go <<'EOF'
+              package main
+              import (
+                "archive/zip"
+                "io"
+                "log"
+                "os"
+              )
+              func main() {
+                const zipName = "helm-windows-amd64.exe.zip"
+                const inName = "helm-windows-amd64.exe"
+                zf, err := os.Create(zipName)
+                if err != nil { log.Fatal(err) }
+                defer zf.Close()
+                zw := zip.NewWriter(zf)
+                defer zw.Close()
+                w, err := zw.Create(inName)
+                if err != nil { log.Fatal(err) }
+                in, err := os.Open(inName)
+                if err != nil { log.Fatal(err) }
+                defer in.Close()
+                if _, err := io.Copy(w, in); err != nil { log.Fatal(err) }
+              }
+              EOF
+              go run /tmp/zip_windows.go
+
+              # sha256sum over all files (stable ordering)
+              LC_ALL=C ls -1 | LC_ALL=C sort | xargs -r sha256sum > sha256sum.txt
+
+              mkdir -p "${SRC_DIR}/releases"
+              cp -a . "${SRC_DIR}/releases/"
+      workspaces:
+        - name: ws
+          workspace: shared-workspace
+
+    - name: build-image
+      runAfter: [package-artifacts]
+      taskRef:
+        name: buildah
+        kind: ClusterTask
+      params:
+        - name: IMAGE
+          value: $(params.output_image):v$(tasks.set-version.results.version)
+        - name: CONTEXT
+          value: $(workspaces.source.path)/source
+        - name: DOCKERFILE
+          value: Containerfile
+        - name: TLSVERIFY
+          value: "true"
+        - name: SKIP_PUSH
+          value: "false"
+        - name: ADDITIONAL_TAGS
+          value: $(tasks.set-version.results.git-sha)
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+
+  results:
+    - name: version
+      value: $(tasks.set-version.results.version)
+    - name: git-sha
+      value: $(tasks.set-version.results.git-sha)
+
+
