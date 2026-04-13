@@ -22,7 +22,7 @@ PKG         := ./...
 TAGS        :=
 TESTS       := .
 TESTFLAGS   :=
-LDFLAGS     := -w -s
+LDFLAGS     := -s
 GOFLAGS     :=
 CGO_ENABLED ?= 0
 
@@ -79,6 +79,10 @@ build: $(BINDIR)/$(BINNAME)
 
 $(BINDIR)/$(BINNAME): $(SRC)
 	CGO_ENABLED=$(CGO_ENABLED) go build $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o '$(BINDIR)'/$(BINNAME) ./cmd/helm
+
+.PHONY: build-native
+build-native:
+	CGO_ENABLED=1 go build $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o "_dist/linux-$(ARCH)"/$(BINNAME) ./cmd/helm
 
 # ------------------------------------------------------------------------------
 #  install
@@ -179,13 +183,13 @@ $(GOIMPORTS):
 .PHONY: build-cross
 build-cross: LDFLAGS += -extldflags "-static"
 build-cross:
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 
 .PHONY: dist
 dist:
