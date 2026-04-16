@@ -81,6 +81,9 @@ type (
 		httpClient         *http.Client
 		plainHTTP          bool
 		err                error // pass any errors from the ClientOption functions
+
+		// credentialsFileTemp captures if the empty file / EOF work around is being used.
+		credentialsFileTemp bool
 	}
 
 	// ClientOption allows specifying various settings configurable by the user for overriding the defaults
@@ -103,9 +106,9 @@ func NewClient(options ...ClientOption) (*Client, error) {
 		client.credentialsFile = helmpath.ConfigPath(CredentialsFileBasename)
 	}
 	if client.httpClient == nil {
-		transport := newTransport()
+		transport := newTransport(client.debug)
 		client.httpClient = &http.Client{
-			Transport: retry.NewTransport(transport),
+			Transport: transport,
 		}
 	}
 
@@ -115,11 +118,26 @@ func NewClient(options ...ClientOption) (*Client, error) {
 	}
 	store, err := credentials.NewStore(client.credentialsFile, storeOptions)
 	if err != nil {
-		return nil, err
+		// If the file exists and is empty there will be an EOF error. This error is not wrapped so
+		// a check with errors.Is will not work. The only way to capture it is an EOF error is
+		// with string parsing.
+		// This handling passes no file location which will cause NewStore to invoke its
+		// fault tolerance for a file not existing. A bool records this bypass so that if the
+		// credential store needs to be written to it this work around can be handled. See the
+		// Login method for more details.
+		if strings.Contains(err.Error(), "invalid config format: EOF") {
+			var err2 error
+			store, err2 = credentials.NewStore("", storeOptions)
+			if err2 != nil {
+				return nil, err
+			}
+			client.credentialsFileTemp = true
+		} else {
+			return nil, err
+		}
 	}
 	dockerStore, err := credentials.NewStoreFromDocker(storeOptions)
 	if err != nil {
-		// should only fail if user home directory can't be determined
 		client.credentialsStore = store
 	} else {
 		// use Helm credentials with fallback to Docker
@@ -229,8 +247,39 @@ type (
 	}
 )
 
+// Deprecated: will be removed in Helm 4
+// Added for backwards compatibility for Helm < 3.18.0 after moving to ORAS v2
+// ref: https://github.com/helm/helm/issues/30873
+// TODO: document that Helm 4 `registry login` does accept full URLs
+func (c *Client) stripURL(host string) string {
+	// strip scheme from host in URL
+	for _, s := range []string{"oci://", "http://", "https://"} {
+		if strings.HasPrefix(host, s) {
+			plain := strings.TrimPrefix(host, s)
+			if c.debug {
+				fmt.Fprintf(c.out, "[WARNING] Invalid registry passed: registries should NOT be prefixed with a URL scheme. Use %q instead\n", plain)
+			}
+			host = plain
+			break
+		}
+	}
+	// strip repo from registry in URL
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+		if c.debug {
+			fmt.Fprintf(c.out, "[WARNING] Invalid registry passed: registries should NOT include a repository. Use %q instead\n", host)
+		}
+		return host
+	}
+
+	return host
+}
+
 // Login logs into a registry
 func (c *Client) Login(host string, options ...LoginOption) error {
+	// This is the lowest available point to strip incorrect URL parts
+	host = c.stripURL(host)
+
 	for _, option := range options {
 		option(&loginOperation{host, c})
 	}
@@ -240,19 +289,44 @@ func (c *Client) Login(host string, options ...LoginOption) error {
 		return err
 	}
 	reg.PlainHTTP = c.plainHTTP
+	cred := auth.Credential{Username: c.username, Password: c.password}
+	c.authorizer.ForceAttemptOAuth2 = true
 	reg.Client = c.authorizer
 
 	ctx := context.Background()
-	cred, err := c.authorizer.Credential(ctx, host)
-	if err != nil {
-		return fmt.Errorf("fetching credentials for %q: %w", host, err)
+	if err := reg.Ping(ctx); err != nil {
+		c.authorizer.ForceAttemptOAuth2 = false
+		if err := reg.Ping(ctx); err != nil {
+			return fmt.Errorf("authenticating to %q: %w", host, err)
+		}
 	}
 
-	if err := reg.Ping(ctx); err != nil {
-		return fmt.Errorf("authenticating to %q: %w", host, err)
+	// The credentialsStore loader does not handle empty files. So, there is a workaround.
+	// This can be removed when the credentials loader can handle empty files.
+	// When Helm catches an empty file error it causes the loader to trigger its fault
+	// tolerance for a file not existing and records it with a bool. If that bool is set and the
+	// file needs to be written, the file needs to be put into a usable state and loaded
+	// properly.
+	// See the NewClient function for the bypass setup.
+	if c.credentialsFileTemp {
+		err = os.WriteFile(c.credentialsFile, []byte("{}"), 0600)
+		if err != nil {
+			return err
+		}
+		storeOptions := credentials.StoreOptions{
+			AllowPlaintextPut:        true,
+			DetectDefaultNativeStore: true,
+		}
+		store, err := credentials.NewStore(c.credentialsFile, storeOptions)
+		if err != nil {
+			return err
+		}
+		c.credentialsStore = store
+		c.credentialsFileTemp = false
 	}
 
 	key := credentials.ServerAddressFromRegistry(host)
+	key = credentials.ServerAddressFromHostname(key)
 	if err := c.credentialsStore.Put(ctx, key, cred); err != nil {
 		return err
 	}
@@ -283,14 +357,19 @@ func ensureTLSConfig(client *auth.Client) (*tls.Config, error) {
 	switch t := client.Client.Transport.(type) {
 	case *http.Transport:
 		transport = t
-	case *retry.Transport:
+	case *fallbackTransport:
 		switch t := t.Base.(type) {
 		case *http.Transport:
 			transport = t
-		case *fallbackTransport:
+		case *retry.Transport:
 			switch t := t.Base.(type) {
 			case *http.Transport:
 				transport = t
+			case *LoggingTransport:
+				switch t := t.RoundTripper.(type) {
+				case *http.Transport:
+					transport = t
+				}
 			}
 		}
 	}
@@ -459,7 +538,7 @@ func (c *Client) Pull(ref string, options ...PullOption) (*PullResult, error) {
 			PreCopy: func(_ context.Context, desc ocispec.Descriptor) error {
 				mediaType := desc.MediaType
 				if i := sort.SearchStrings(allowedMediaTypes, mediaType); i >= len(allowedMediaTypes) || allowedMediaTypes[i] != mediaType {
-					return errors.Errorf("media type %q is not allowed, found in descriptor with digest: %q", mediaType, desc.Digest)
+					return oras.SkipNode
 				}
 
 				mu.Lock()
@@ -473,7 +552,6 @@ func (c *Client) Pull(ref string, options ...PullOption) (*PullResult, error) {
 		return nil, err
 	}
 
-	descriptors = append(descriptors, manifest)
 	descriptors = append(descriptors, layers...)
 
 	numDescriptors := len(descriptors)
@@ -681,19 +759,9 @@ func (c *Client) Push(data []byte, ref string, options ...PushOption) (*PushResu
 	})
 
 	ociAnnotations := generateOCIAnnotations(meta, operation.creationTime)
-	manifest := ocispec.Manifest{
-		Versioned:   specs.Versioned{SchemaVersion: 2},
-		Config:      configDescriptor,
-		Layers:      layers,
-		Annotations: ociAnnotations,
-	}
 
-	manifestData, err := json.Marshal(manifest)
-	if err != nil {
-		return nil, err
-	}
-
-	manifestDescriptor, err := oras.TagBytes(ctx, memoryStore, ocispec.MediaTypeImageManifest, manifestData, ref)
+	manifestDescriptor, err := c.tagManifest(ctx, memoryStore, configDescriptor,
+		layers, ociAnnotations, parsedRef)
 	if err != nil {
 		return nil, err
 	}
@@ -893,4 +961,25 @@ func (c *Client) ValidateReference(ref, version string, u *url.URL) (*url.URL, e
 	u.Path = fmt.Sprintf("%s:%s", registryReference.Repository, tag)
 
 	return u, err
+}
+
+// tagManifest prepares and tags a manifest in memory storage
+func (c *Client) tagManifest(ctx context.Context, memoryStore *memory.Store,
+	configDescriptor ocispec.Descriptor, layers []ocispec.Descriptor,
+	ociAnnotations map[string]string, parsedRef reference) (ocispec.Descriptor, error) {
+
+	manifest := ocispec.Manifest{
+		Versioned:   specs.Versioned{SchemaVersion: 2},
+		Config:      configDescriptor,
+		Layers:      layers,
+		Annotations: ociAnnotations,
+	}
+
+	manifestData, err := json.Marshal(manifest)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	return oras.TagBytes(ctx, memoryStore, ocispec.MediaTypeImageManifest,
+		manifestData, parsedRef.String())
 }
