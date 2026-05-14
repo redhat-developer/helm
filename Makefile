@@ -80,10 +80,6 @@ build: $(BINDIR)/$(BINNAME)
 $(BINDIR)/$(BINNAME): $(SRC)
 	CGO_ENABLED=$(CGO_ENABLED) go build $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o '$(BINDIR)'/$(BINNAME) ./cmd/helm
 
-.PHONY: build-native
-build-native:
-	CGO_ENABLED=1 go build $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o "_dist/linux-$(ARCH)"/$(BINNAME) ./cmd/helm
-
 # ------------------------------------------------------------------------------
 #  install
 
