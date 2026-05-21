@@ -179,13 +179,13 @@ $(GOIMPORTS):
 .PHONY: build-cross
 build-cross: LDFLAGS += -extldflags "-static"
 build-cross:
-	GODEBUG=fips140=on GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=on GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=on GO111MODULE=on CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=on GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=on GO111MODULE=on CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=on GO111MODULE=on CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=on GO111MODULE=on CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto GO111MODULE=on CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto GO111MODULE=on CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto GO111MODULE=on CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto GO111MODULE=on CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
  
 
 .PHONY: dist
