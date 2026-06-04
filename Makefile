@@ -19,7 +19,7 @@ ACCEPTANCE_RUN_TESTS=.
 
 # go option
 PKG         := ./...
-TAGS        :=
+TAGS        := no_openssl
 TESTS       := .
 TESTFLAGS   :=
 LDFLAGS     := -w -s
@@ -78,7 +78,7 @@ all: build
 build: $(BINDIR)/$(BINNAME)
 
 $(BINDIR)/$(BINNAME): $(SRC)
-	GO111MODULE=on CGO_ENABLED=$(CGO_ENABLED) go build $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o '$(BINDIR)'/$(BINNAME) ./cmd/helm
+	CGO_ENABLED=$(CGO_ENABLED) go build $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o '$(BINDIR)'/$(BINNAME) ./cmd/helm
 
 # ------------------------------------------------------------------------------
 #  install
@@ -104,7 +104,7 @@ test: test-unit
 test-unit:
 	@echo
 	@echo "==> Running unit tests <=="
-	GO111MODULE=on go test $(GOFLAGS) -run $(TESTS) $(PKG) $(TESTFLAGS)
+	go test $(GOFLAGS) -run $(TESTS) $(PKG) $(TESTFLAGS)
 
 .PHONY: test-coverage
 test-coverage:
@@ -142,7 +142,7 @@ coverage:
 
 .PHONY: format
 format: $(GOIMPORTS)
-	GO111MODULE=on go list -f '{{.Dir}}' ./... | xargs $(GOIMPORTS) -w -local helm.sh/helm
+	go list -f '{{.Dir}}' ./... | xargs $(GOIMPORTS) -w -local helm.sh/helm
 
 # Generate golden files used in unit tests
 .PHONY: gen-test-golden
@@ -159,10 +159,10 @@ gen-test-golden: test-unit
 # without a go.mod file when downloading the following dependencies
 
 $(GOX):
-	(cd /; GO111MODULE=on go install github.com/mitchellh/gox@v1.0.2-0.20220701044238-9f712387e2d2)
+	(cd /; go install github.com/mitchellh/gox@v1.0.2-0.20220701044238-9f712387e2d2)
 
 $(GOIMPORTS):
-	(cd /; GO111MODULE=on go install golang.org/x/tools/cmd/goimports@latest)
+	(cd /; go install golang.org/x/tools/cmd/goimports@latest)
 
 # ------------------------------------------------------------------------------
 #  release
@@ -170,13 +170,13 @@ $(GOIMPORTS):
 .PHONY: build-cross
 build-cross: LDFLAGS += -extldflags "-static"
 build-cross:
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GO111MODULE=on CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 
 .PHONY: dist
 dist:
