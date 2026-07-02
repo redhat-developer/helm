@@ -19,7 +19,7 @@ ACCEPTANCE_RUN_TESTS=.
 
 # go option
 PKG         := ./...
-TAGS        :=
+TAGS        := no_openssl
 TESTS       := .
 TESTFLAGS   :=
 LDFLAGS     := -w -s
@@ -167,9 +167,6 @@ gen-test-golden: test-unit
 # dependencies to the go.mod file. To avoid that we change to a directory
 # without a go.mod file when downloading the following dependencies
 
-$(GOX):
-	(cd /; go install github.com/mitchellh/gox@v1.0.2-0.20220701044238-9f712387e2d2)
-
 $(GOIMPORTS):
 	(cd /; go install golang.org/x/tools/cmd/goimports@latest)
 
@@ -178,8 +175,14 @@ $(GOIMPORTS):
 
 .PHONY: build-cross
 build-cross: LDFLAGS += -extldflags "-static"
-build-cross: $(GOX)
-	GOFLAGS="-trimpath" CGO_ENABLED=0 $(GOX) -parallel=3 -output="_dist/{{.OS}}-{{.Arch}}/$(BINNAME)" -osarch='$(TARGETS)' $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+build-cross:
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 
 .PHONY: dist
 dist:
