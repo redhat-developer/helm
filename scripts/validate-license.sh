@@ -20,6 +20,7 @@ find_files() {
   find . -not \( \
     \( \
       -wholename './.git' \
+      -o -wholename './vendor' \
       -o -wholename '*testdata*' \
       -o -wholename '*third_party*' \
     \) -prune \
