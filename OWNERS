@@ -1,15 +1,9 @@
 # See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
 
 approvers:
-- dperaza4dustbit
-- pmacik
-- Kartikey-star
+- baijum
+- martinszuc
 
 reviewers:
-- sbose78
 - baijum
-- pmacik
-- dperaza4dustbit
-- mmulholla
-- tisutisu
-- SecKatie
+- martinszuc
