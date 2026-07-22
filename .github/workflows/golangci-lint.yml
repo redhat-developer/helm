@@ -11,16 +11,15 @@ jobs:
   golangci:
     name: golangci-lint
     runs-on: ubuntu-latest
+    container:
+      image: registry.access.redhat.com/ubi9/go-toolset:1.26
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - name: Mark workspace as safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Add variables to environment file
         run: cat ".github/env" >> "$GITHUB_ENV"
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # pin@6.4.0
-        with:
-          go-version: '${{ env.GOLANG_VERSION }}'
-          check-latest: true
       - name: golangci-lint
         uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee #pin@9.2.1
         with:
