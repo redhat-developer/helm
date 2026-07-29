@@ -1,45 +1,78 @@
-run:
-  timeout: 10m
-
+version: "2"
 linters:
-  disable-all: true
+  default: none
   enable:
     - dupl
-    - gofmt
-    - goimports
-    - gosimple
     - govet
     - ineffassign
     - misspell
     - nakedret
     - revive
-    - unused
     - staticcheck
-
-linters-settings:
-  gofmt:
-    simplify: true
-  goimports:
-    local-prefixes: helm.sh/helm/v3
-  dupl:
-    threshold: 400
-issues:
-  exclude-rules:
-    # Helm, and the Go source code itself, sometimes uses these names outside their built-in
-    # functions. As the Go source code has re-used these names it's ok for Helm to do the same.
-    # Linting will look for redefinition of built-in id's but we opt-in to the ones we choose to use.
-    - linters:
-        - revive
-      text: "redefines-builtin-id: redefinition of the built-in function append"
-    - linters:
-        - revive
-      text: "redefines-builtin-id: redefinition of the built-in function clear"
-    - linters:
-        - revive
-      text: "redefines-builtin-id: redefinition of the built-in function max"
-    - linters:
-        - revive
-      text: "redefines-builtin-id: redefinition of the built-in function min"
-    - linters:
-        - revive
-      text: "redefines-builtin-id: redefinition of the built-in function new"
+    - unused
+  settings:
+    dupl:
+      threshold: 400
+    staticcheck:
+      # v1 config here separately enabled `gosimple` (S* checks) and `staticcheck` (SA*
+      # checks) only — no `stylecheck` (ST*) or quickfix (QF*) groups. v2 merges all of
+      # these into one `staticcheck` linter, so pin `checks` to just S*/SA* to preserve
+      # the original lint policy instead of picking up ST*/QF* findings on old code.
+      checks:
+        - "SA*"
+        - "S*"
+  exclusions:
+    rules:
+      # Helm, and the Go source code itself, sometimes uses these names outside their built-in
+      # functions. As the Go source code has re-used these names it's ok for Helm to do the same.
+      # Linting will look for redefinition of built-in id's but we opt-in to the ones we choose to use.
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function append'
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function clear'
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function max'
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function min'
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function new'
+      # New in the golangci-lint v2.9.0 upgrade (needed for Go 1.26 support, see HELM-820):
+      # revive's var-naming check now also flags package names that shadow stdlib package
+      # names (e.g. `fs`, `driver`, `version`). These are long-standing, intentional names
+      # in this codebase unrelated to this change; not worth renaming packages just to
+      # satisfy a new check.
+      - linters:
+          - revive
+        text: 'var-naming: avoid package names that conflict with Go standard library package names'
+      - linters:
+          - revive
+        text: 'var-naming: avoid meaningless package names'
+      # golangci-lint v2.9.0 bundles a newer revive with a broader default rule set than
+      # the v1.64 setup this branch used, which now also enables `exported`,
+      # `package-comments`, and `unexported-return` (doc-comment / API-shape enforcement)
+      # across the whole codebase. Not part of this CVE fix's scope — exclude rather than
+      # retrofitting doc comments onto unrelated pre-existing code.
+      - linters:
+          - revive
+        text: '^exported:'
+      - linters:
+          - revive
+        text: '^package-comments:'
+      - linters:
+          - revive
+        text: '^unexported-return:'
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - helm.sh/helm/v3
