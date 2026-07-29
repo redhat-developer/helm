@@ -44,6 +44,14 @@ linters:
       - linters:
           - revive
         text: 'redefines-builtin-id: redefinition of the built-in function new'
+      # New in the golangci-lint v2.9.0 upgrade (needed for Go 1.26 support, see HELM-821):
+      # revive's var-naming check now also flags package names that shadow stdlib package
+      # names (e.g. `fs`, `driver`, `version`). These are long-standing, intentional names
+      # in this codebase (internal/third_party/dep/fs, pkg/storage/driver, internal/version)
+      # unrelated to this change; not worth renaming packages just to satisfy a new check.
+      - linters:
+          - revive
+        text: 'var-naming: avoid package names that conflict with Go standard library package names'
     paths:
       - third_party$
       - builtin$
