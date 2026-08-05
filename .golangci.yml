@@ -1,25 +1,70 @@
-run:
-  timeout: 10m
-
+version: "2"
 linters:
-  disable-all: true
+  default: none
   enable:
     - dupl
-    - gofmt
-    - goimports
-    - gosimple
     - govet
     - ineffassign
     - misspell
     - nakedret
     - revive
-    - unused
     - staticcheck
-
-linters-settings:
-  gofmt:
-    simplify: true
-  goimports:
-    local-prefixes: helm.sh/helm/v3
-  dupl:
-    threshold: 400
+    - unused
+  settings:
+    dupl:
+      threshold: 400
+    staticcheck:
+      # v1 config here separately enabled `gosimple` (S* checks) and `staticcheck` (SA*
+      # checks) only — no `stylecheck` (ST*) or quickfix (QF*) groups. v2 merges all of
+      # these into one `staticcheck` linter, so pin `checks` to just S*/SA* to preserve
+      # the original lint policy instead of picking up ST*/QF* findings on old code.
+      checks:
+        - "SA*"
+        - "S*"
+  exclusions:
+    rules:
+      # golangci-lint v2.9.0 bundles a newer revive with a broader default rule set than
+      # this branch's original v1.58 setup, which now also enables `exported`,
+      # `package-comments`, `unexported-return`, and additional `var-naming` checks
+      # (see the identical migration on HELM-820/821). Not part of this CVE fix's scope —
+      # exclude rather than retrofitting doc comments/API changes onto unrelated code.
+      - linters:
+          - revive
+        text: '^exported:'
+      - linters:
+          - revive
+        text: '^package-comments:'
+      - linters:
+          - revive
+        text: '^unexported-return:'
+      - linters:
+          - revive
+        text: '^var-naming:'
+      # Helm, and the Go source code itself, sometimes uses these names outside their built-in
+      # functions. As the Go source code has re-used these names it's ok for Helm to do the same.
+      # Linting will look for redefinition of built-in id's but we opt-in to the ones we choose to use.
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function append'
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function clear'
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function max'
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function min'
+      - linters:
+          - revive
+        text: 'redefines-builtin-id: redefinition of the built-in function new'
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - helm.sh/helm/v3
