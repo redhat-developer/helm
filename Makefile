@@ -24,6 +24,7 @@ TESTFLAGS   := -shuffle=on -count=1
 LDFLAGS     := -w -s
 GOFLAGS     :=
 CGO_ENABLED ?= 0
+GOFIPS140   ?= certified
 
 # Rebuild the binary if any of these files change
 SRC := $(shell find . -type f -name '*.go' -print) go.mod go.sum
@@ -67,7 +68,7 @@ all: build
 build: $(BINDIR)/$(BINNAME) tidy
 
 $(BINDIR)/$(BINNAME): $(SRC)
-	CGO_ENABLED=$(CGO_ENABLED) go build $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o '$(BINDIR)'/$(BINNAME) ./cmd/helm
+	GOFIPS140=$(GOFIPS140) CGO_ENABLED=$(CGO_ENABLED) go build $(GOFLAGS) -trimpath -tags '$(TAGS)' -ldflags '$(LDFLAGS)' -o '$(BINDIR)'/$(BINNAME) ./cmd/helm
 
 # ------------------------------------------------------------------------------
 #  install
@@ -172,13 +173,13 @@ $(GOIMPORTS):
 .PHONY: build-cross
 build-cross: LDFLAGS += -extldflags "-static"
 build-cross:
-	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
-	GODEBUG=fips140=auto CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GOFIPS140=$(GOFIPS140) CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o "_dist/linux-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GOFIPS140=$(GOFIPS140) CGO_ENABLED=0 GOARCH=amd64 GOOS=darwin go build -o "_dist/darwin-amd64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GOFIPS140=$(GOFIPS140) CGO_ENABLED=0 GOARCH=arm64 GOOS=darwin go build -o "_dist/darwin-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GOFIPS140=$(GOFIPS140) CGO_ENABLED=0 GOARCH=amd64 GOOS=windows go build -o "_dist/windows-amd64/$(BINNAME).exe" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GOFIPS140=$(GOFIPS140) CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o "_dist/linux-arm64/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GOFIPS140=$(GOFIPS140) CGO_ENABLED=0 GOARCH=ppc64le GOOS=linux go build -o "_dist/linux-ppc64le/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
+	GOFIPS140=$(GOFIPS140) CGO_ENABLED=0 GOARCH=s390x GOOS=linux go build -o "_dist/linux-s390x/$(BINNAME)" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm
 
 .PHONY: dist
 dist:
