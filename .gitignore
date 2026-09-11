@@ -9,7 +9,6 @@
 _dist/
 _dist_versions/
 bin/
-vendor/
 .pre-commit-config.yaml
 
 # Ignores charts pulled for dependency build tests

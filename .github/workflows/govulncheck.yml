@@ -17,18 +17,15 @@ jobs:
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
+    container:
+      image: registry.access.redhat.com/ubi9/go-toolset:1.26
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
         with:
           persist-credentials: false
-      - name: Add variables to environment file
-        run: cat ".github/env" >> "$GITHUB_ENV"
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # pin@7.0.0
-        with:
-          go-version: '${{ env.GOLANG_VERSION }}'
-          check-latest: true
+      - name: Mark workspace as safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: govulncheck
         uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # pin@v1.1.0
         with:
