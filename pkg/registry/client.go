@@ -31,7 +31,6 @@ import (
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/containerd/containerd/remotes"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -231,7 +230,7 @@ func ClientOptPlainHTTP() ClientOption {
 	}
 }
 
-func ClientOptResolver(_ remotes.Resolver) ClientOption {
+func ClientOptResolver(_ any) ClientOption {
 	return func(c *Client) {
 		c.err = errDeprecatedRemote
 	}
