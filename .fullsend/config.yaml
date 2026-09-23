@@ -20,6 +20,10 @@ create_issues:
         repos:
             - redhat-developer/helm
             - fullsend-ai/fullsend
+code:
+    allowed_target_branches:
+        - main
+        - "release-*"
 inference:
     project: it-gcp-helm-ai
     wif_provider: projects/645606135995/locations/global/workloadIdentityPools/fullsend-inference/providers/gh-redhat-developer-helm
