@@ -46,6 +46,9 @@ generate_cover_data() {
 }
 
 generate_cover_data
+# Keep the merged profile for the Codecov upload. .coverage/ is gitignored.
+mkdir -p .coverage
+cp "${profile}" .coverage/coverage.out
 go tool cover -func "${profile}"
 
 if [ "${html}" = "true" ] ; then
