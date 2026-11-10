@@ -1,0 +1,49 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "50...100"
+
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+
+# Go coverage profiles do not use these parsers. This applies if a
+# Cobertura report is uploaded later.
+parsers:
+  cobertura:
+    partials_as_hits: true
+
+# Go cover profiles omit test files. Vendor and fixtures are not part
+# of the unit-test target.
+ignore:
+  - "vendor/**"
+  - "scripts/**"
+  - "**/testdata/**"
+  - "**/*_test.go"
+  - "**/mock_*.go"
+  - "**/*_mock.go"
+  - "**/zz_generated*.go"
+  - "**/fake_*.go"
+
+# Carryforward only applies to flagged uploads. The CI upload uses
+# flags: unit-tests.
+flag_management:
+  default_rules:
+    carryforward: true
+
+flags:
+  unit-tests:
+    carryforward: true
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default

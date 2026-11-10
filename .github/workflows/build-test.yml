@@ -9,9 +9,11 @@ on:
     branches:
       - "main"
       - "dev-v3"
+      - "release-**"
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   build:
@@ -31,5 +33,16 @@ jobs:
         run: go mod tidy -diff
       - name: Run unit tests
         run: make test-coverage
+      - name: Upload coverage to Codecov
+        if: |
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release-')) ||
+          (github.event_name == 'pull_request' && startsWith(github.base_ref, 'release-'))
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # pin@v7.1.1
+        with:
+          use_oidc: true
+          slug: redhat-developer/helm
+          flags: unit-tests
+          files: .coverage/coverage.out
+          fail_ci_if_error: false
       - name: Test build
         run: make build
