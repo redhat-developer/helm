@@ -18,7 +18,7 @@ ACCEPTANCE_RUN_TESTS = .
 
 # go option
 PKG         := ./...
-TAGS        :=
+TAGS        := no_openssl
 TESTS       := .
 TESTFLAGS   := -shuffle=on -count=1
 LDFLAGS     := -w -s
@@ -129,7 +129,7 @@ test-source-headers:
 	@scripts/validate-license.sh
 
 .PHONY: test-acceptance
-test-acceptance: build
+test-acceptance: build build-cross
 	@if [ -d "${ACCEPTANCE_DIR}" ]; then \
 		cd ${ACCEPTANCE_DIR} && \
 			ROBOT_RUN_TESTS=$(ACCEPTANCE_RUN_TESTS) ROBOT_HELM_PATH='$(BINDIR)' make acceptance; \
@@ -171,8 +171,15 @@ $(GOIMPORTS):
 
 .PHONY: build-cross
 build-cross: LDFLAGS += -extldflags "-static"
-build-cross: $(GORELEASER)
-	LDFLAGS='$(LDFLAGS)' $(GORELEASER) build --snapshot --clean
+build-cross:
+	for platform in linux/arm64 linux/amd64 linux/ppc64le linux/s390x darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do \
+	  goos="${platform%/*}"; \
+	  goarch="${platform#*/}"; \
+	  output="_dist/${goos}-${goarch}/$(BINNAME)"; \
+	  [ "${goos}" = "windows" ] && output="${output}.exe"; \
+	  CGO_ENABLED=0 GOOS=$"{goos}" GOARCH="${goarch}" \
+	    go build -o "${output}" $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' ./cmd/helm ; \
+	done
 
 .PHONY: dist
 dist:

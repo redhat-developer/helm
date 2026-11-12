@@ -2,6 +2,8 @@ module helm.sh/helm/v4
 
 go 1.26.0
 
+godebug fips140=auto
+
 require (
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20230811130428-ced1acdcaa24
 	github.com/BurntSushi/toml v1.6.0
