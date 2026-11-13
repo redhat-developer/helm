@@ -18,7 +18,7 @@ jobs:
     name: govulncheck
     runs-on: ubuntu-latest
     container:
-      image: registry.access.redhat.com/ubi9/go-toolset:1.26
+      image: registry.access.redhat.com/ubi9/go-toolset:1.27
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
