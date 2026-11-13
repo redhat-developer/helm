@@ -1,0 +1,5 @@
+# Preserve exact bytes from `go mod vendor`.
+# Some upstream modules ship CRLF; with core.autocrlf=input (common on
+# macOS), `git add` would otherwise normalize them to LF. Hermeto re-vendors
+# on Linux (CRLF intact) and fails the comparison against LF in git.
+vendor/** -text
